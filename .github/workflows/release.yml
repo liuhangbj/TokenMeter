@@ -81,9 +81,21 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           mkdir -p sigs
-          # 下载全部 .sig 签名文件
-          gh release download "$TAG" --pattern "*.sig" --dir sigs 2>/dev/null || true
+          # 下载全部 .sig 签名文件（assets 上传可能有秒级延迟，重试等待出现）
+          for i in 1 2 3 4 5 6; do
+            gh release download "$TAG" --pattern "*.sig" --dir sigs 2>&1 || true
+            if [ -n "$(ls sigs/ 2>/dev/null)" ]; then
+              echo "下载成功（第 $i 次尝试）"
+              break
+            fi
+            echo "assets 未就绪，5 秒后重试（$i/6）"
+            sleep 5
+          done
           ls -la sigs/
+          if [ -z "$(ls sigs/ 2>/dev/null)" ]; then
+            echo "::error::无法下载任何 .sig 文件"
+            exit 1
+          fi
 
           python3 - <<'EOF'
           import json, os, subprocess, datetime, re
