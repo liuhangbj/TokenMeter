@@ -24,6 +24,10 @@ const TRAY_COLOR_RGBA: &[u8] = include_bytes!("../icons/tray_color.rgba");
 const MENUBAR_SIZE: u32 = 64;
 /// 面板宽度（与前端 CSS 一致）
 const PANEL_W: i32 = 380;
+/// 托盘单击防抖间隔（毫秒）：双击的第二击在此窗口内被忽略
+const CLICK_DEBOUNCE_MS: u64 = 300;
+/// 上次托盘点击的毫秒时间戳（双击防抖用）
+static LAST_CLICK_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 获取（不存在则创建）popover 面板窗口。
 /// 纯菜单栏架构：启动时不创建任何窗口，点托盘图标第一次才创建，
@@ -73,14 +77,18 @@ fn tray_icon() -> (Image<'static>, bool) {
 /// 窗口未显示时 current_monitor 只给主屏，多显示器会错位）。
 fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
     let Some(window) = get_or_create_panel(app) else {
+        log::warn!("toggle_panel: 面板窗口创建失败");
         return;
     };
     if window.is_visible().unwrap_or(false) {
         // 面板已打开 → 点击收起。直接销毁窗口（而非 hide），
         // 让 WebView 子进程一并回收，保持"纯菜单栏、无窗口痕迹"。
+        log::info!("toggle_panel: 收起面板");
         let _ = window.close();
         return;
     }
+
+    log::info!("toggle_panel: 弹出面板");
 
     // tray_rect 的 position/size 是 tauri::Position/Size 枚举（逻辑或物理）。
     // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
@@ -95,6 +103,7 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
         .monitor_from_point(icon_x, icon_y)
         .ok()
         .flatten();
+    log::info!("toggle_panel: 托盘坐标 ({icon_x:.0},{icon_y:.0}) 显示器={}", monitor.is_some());
 
     // 面板实际尺寸
     let win_size = window
@@ -133,8 +142,10 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
         y = y.clamp(min_y, max_y.max(min_y));
     }
 
+    log::info!("toggle_panel: 定位 ({x:.0},{y:.0})");
     let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
     let _ = window.show();
+    log::info!("toggle_panel: 已显示，请求焦点");
     let _ = window.set_focus();
 }
 
@@ -179,6 +190,19 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
                 ..
             } = event
             {
+                // 双击防抖：macOS/Windows 双击会触发两次 Click(Up)，
+                // 第一击弹出面板、第二击立刻 close 销毁 → 观感"闪退"。
+                // 300ms 内的第二次点击直接忽略，双击只算一次单击。
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let last = LAST_CLICK_MS.load(std::sync::atomic::Ordering::Relaxed);
+                if now.saturating_sub(last) < CLICK_DEBOUNCE_MS {
+                    return;
+                }
+                LAST_CLICK_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+
                 toggle_panel(tray.app_handle(), rect);
             }
         })
