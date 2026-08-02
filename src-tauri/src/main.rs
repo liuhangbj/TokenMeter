@@ -15,7 +15,17 @@ use tauri_plugin_autostart::MacosLauncher;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    // 日志：默认输出到 stderr（GUI 子系统下不可见，无副作用）。
+    // 设 TOKENMETER_LOG_FILE=<path> 时同时写文件——仅 CI/排查用，正常使用零文件。
+    if let Ok(path) = std::env::var("TOKENMETER_LOG_FILE") {
+        let file = std::fs::File::create(&path).expect("无法创建日志文件");
+        let target = env_logger::Target::Pipe(Box::new(file));
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .target(target)
+            .init();
+    } else {
+        env_logger::init();
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
