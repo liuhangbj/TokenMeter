@@ -19,10 +19,10 @@ use tauri::{
 /// 菜单栏模板图标（编译期嵌入，RGBA 原始字节，64×64）
 /// macOS：纯黑剪影模板图，系统按菜单栏明暗自动变色
 #[cfg(target_os = "macos")]
-const MENUBAR_RGBA: &[u8] = include_bytes!("../icons/menubar.rgba");
+const MENUBAR_RGBA: &[u8] = include_bytes!("../../icons/menubar.rgba");
 /// Windows：彩色图标（模板剪影在深色任务栏看不清）
 #[cfg(not(target_os = "macos"))]
-const TRAY_COLOR_RGBA: &[u8] = include_bytes!("../icons/tray_color.rgba");
+const TRAY_COLOR_RGBA: &[u8] = include_bytes!("../../icons/tray_color.rgba");
 const MENUBAR_SIZE: u32 = 64;
 /// 面板宽度（与前端 CSS 一致）
 const PANEL_W: i32 = 380;
@@ -173,7 +173,7 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
             }
             "refresh" => {
                 log::info!("用户触发刷新");
-                if let Some(ctl) = app.try_state::<crate::scheduler_ctl::SchedulerCtl>() {
+                if let Some(ctl) = app.try_state::<crate::core::scheduler_ctl::SchedulerCtl>() {
                     ctl.trigger_refresh();
                 }
             }

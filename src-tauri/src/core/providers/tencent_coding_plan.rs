@@ -8,7 +8,7 @@
 //! 本 App 仅做只读额度查询、不产生推理调用；C2 依赖真实推理响应头，需重新评估。
 
 use super::*;
-use crate::providers::Brand;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 
 pub struct TencentCodingPlanProvider;

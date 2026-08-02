@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { ProviderSnapshot } from "./types";
 import { ProviderCard } from "./ProviderCard";
 import { SettingsPanel } from "./SettingsPanel";
+import { AddProvider } from "./AddProvider";
 import { autoCheckOnLaunch } from "./updater";
 import { IconSettings, IconSort, IconCheck, IconRefresh } from "./icons";
 
@@ -47,6 +48,7 @@ export default function App() {
   const [editMode, setEditMode] = useState(false);
   const [configured, setConfigured] = useState(false); // 是否已配置过 provider
   const [gotUpdate, setGotUpdate] = useState(false);    // 是否收到过一次刷新完成事件
+  const [view, setView] = useState<"home" | "add">("home"); // 内嵌视图：主面板 / 添加供应商
 
   // 加载设置（拿 card_order）
   useEffect(() => {
@@ -103,7 +105,7 @@ export default function App() {
       invoke("resize_popover", { height: h }).catch(() => {});
     });
     return () => cancelAnimationFrame(id);
-  }, [snaps.length, showSettings, loading, editMode, customOrder]);
+  }, [snaps.length, showSettings, loading, editMode, customOrder, view]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") {
@@ -130,13 +132,7 @@ export default function App() {
     setTimeout(load, 800);
   };
 
-  const onAdd = async () => {
-    try {
-      await invoke("open_add_provider");
-    } catch {
-      console.warn("open_add_provider command 尚未实现");
-    }
-  };
+  const onAdd = () => setView("add");
 
   const onRemove = async (id: string) => {
     const name = snaps.find((s) => s.provider_id === id)?.display_name ?? id;
@@ -178,84 +174,90 @@ export default function App() {
 
   return (
     <div className="popover">
-      <div className="popover-head">
-        <span className="popover-title">TokenMeter</span>
-        <span className="spacer" />
-        {snaps.length > 0 && (
-          <button
-            className={`icon-btn ${editMode ? "active" : ""}`}
-            onClick={() => setEditMode((v) => !v)}
-            title={editMode ? "完成排序" : "自定义排序"}
-          >
-            {editMode ? <IconCheck /> : <IconSort />}
-          </button>
-        )}
-        <button className="icon-btn" onClick={() => setShowSettings((v) => !v)} title="设置">
-          <IconSettings />
-        </button>
-        <button className="icon-btn" onClick={onRefresh} title="刷新">
-          <span className={spinning ? "spin" : ""} style={{ display: "inline-flex" }}>
-            <IconRefresh />
-          </span>
-        </button>
-      </div>
-
-      {showSettings && <SettingsPanel />}
-
-      {loading ? (
-        <div className="empty">加载中…</div>
-      ) : snaps.length === 0 ? (
-        <div className="empty">
-          {configured && !gotUpdate ? (
-            "正在获取额度数据…"
-          ) : (
-            <>
-              还没有添加供应商
-              <br />
-              点击下方按钮开始
-            </>
-          )}
-        </div>
+      {view === "add" ? (
+        <AddProvider onDone={() => setView("home")} />
       ) : (
-        displayed.map((s, i) => (
-          <div key={s.provider_id} className={`card-drag-wrap ${editMode ? "editable" : ""}`}>
-            {editMode && (
-              <div className="sort-arrows">
-                <button
-                  className="sort-btn"
-                  disabled={i === 0}
-                  onClick={() => move(s.provider_id, -1)}
-                  title="上移"
-                >
-                  ↑
-                </button>
-                <button
-                  className="sort-btn"
-                  disabled={i === displayed.length - 1}
-                  onClick={() => move(s.provider_id, 1)}
-                  title="下移"
-                >
-                  ↓
-                </button>
-                <button
-                  className="sort-btn danger"
-                  onClick={() => onRemove(s.provider_id)}
-                  title="移除供应商"
-                >
-                  ✕
-                </button>
-              </div>
+        <>
+          <div className="popover-head">
+            <span className="popover-title">TokenMeter</span>
+            <span className="spacer" />
+            {snaps.length > 0 && (
+              <button
+                className={`icon-btn ${editMode ? "active" : ""}`}
+                onClick={() => setEditMode((v) => !v)}
+                title={editMode ? "完成排序" : "自定义排序"}
+              >
+                {editMode ? <IconCheck /> : <IconSort />}
+              </button>
             )}
-            <ProviderCard snap={s} />
+            <button className="icon-btn" onClick={() => setShowSettings((v) => !v)} title="设置">
+              <IconSettings />
+            </button>
+            <button className="icon-btn" onClick={onRefresh} title="刷新">
+              <span className={spinning ? "spin" : ""} style={{ display: "inline-flex" }}>
+                <IconRefresh />
+              </span>
+            </button>
           </div>
-        ))
-      )}
 
-      <div className="popover-foot">
-        <button className="btn primary" onClick={onAdd}>
-          + 添加供应商
-        </button>
-      </div>
+          {showSettings && <SettingsPanel />}
+
+          {loading ? (
+            <div className="empty">加载中…</div>
+          ) : snaps.length === 0 ? (
+            <div className="empty">
+              {configured && !gotUpdate ? (
+                "正在获取额度数据…"
+              ) : (
+                <>
+                  还没有添加供应商
+                  <br />
+                  点击下方按钮开始
+                </>
+              )}
+            </div>
+          ) : (
+            displayed.map((s, i) => (
+              <div key={s.provider_id} className={`card-drag-wrap ${editMode ? "editable" : ""}`}>
+                {editMode && (
+                  <div className="sort-arrows">
+                    <button
+                      className="sort-btn"
+                      disabled={i === 0}
+                      onClick={() => move(s.provider_id, -1)}
+                      title="上移"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      className="sort-btn"
+                      disabled={i === displayed.length - 1}
+                      onClick={() => move(s.provider_id, 1)}
+                      title="下移"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      className="sort-btn danger"
+                      onClick={() => onRemove(s.provider_id)}
+                      title="移除供应商"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                <ProviderCard snap={s} />
+              </div>
+            ))
+          )}
+
+          <div className="popover-foot">
+            <button className="btn primary" onClick={onAdd}>
+              + 添加供应商
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

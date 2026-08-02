@@ -16,7 +16,7 @@
 //! 本机凭证探测：`$CODEX_HOME/auth.json` / `~/.config/codex/auth.json` / `~/.codex/auth.json`。
 
 use super::*;
-use crate::providers::Brand;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
@@ -36,7 +36,7 @@ impl CodexProvider {
     }
 
     fn candidate_paths() -> Vec<PathBuf> {
-        let home = crate::providers::home_dir();
+        let home = crate::core::providers::home_dir();
         let codex_home = std::env::var("CODEX_HOME").map(PathBuf::from).ok();
         let mut v = vec![];
         if let Some(c) = codex_home {

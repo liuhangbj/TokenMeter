@@ -1,17 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+//! 组装根（三层架构）：
+//! - `core`     平台无关核心（provider / 存储 / 调度 / 设置 / OAuth）
+//! - `platform` 平台壳（托盘 / 浏览器 / macOS Accessory 策略）
+//! - `commands` IPC 薄层；本文件只负责插件注册、窗口事件与退出守卫。
+
 mod commands;
-mod oauth_codex;
-mod oauth_device;
-mod providers;
-mod scheduler;
-mod scheduler_ctl;
-mod settings;
-mod store;
-mod tray;
+mod core;
+mod platform;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
 /// 用户是否明确选择了退出（托盘菜单「退出」）。
@@ -54,7 +53,6 @@ async fn main() {
     }
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             None,
@@ -79,7 +77,6 @@ async fn main() {
             commands::get_settings,
             commands::set_settings,
             commands::interval_options,
-            commands::open_add_provider,
             commands::save_api_key_provider,
             commands::import_local_credential,
             commands::kimi_device_start,
@@ -92,32 +89,27 @@ async fn main() {
             commands::log_frontend_error,
         ])
         .setup(|app| {
-            // 纯菜单栏：运行时也强制 Accessory 策略（不显示 Dock / Cmd+Tab），
-            // 连 `tauri dev` 调试模式也生效，Info.plist 的 LSUIElement 只管打包后。
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            // 平台启动配置（macOS Accessory 策略隐藏 Dock）
+            platform::setup(app);
 
-            // 读取设置，初始化调度控制（间隔广播 + 立即刷新信号）
-            let current = settings::load(app.handle());
-            app.manage(scheduler_ctl::new_ctl(current.refresh_interval_secs));
-            app.manage(scheduler::new_snapshots());
-            tray::build_tray(app.handle())?;
+            // 读取设置（core 文件存储），初始化调度控制（间隔广播 + 立即刷新信号）
+            let current = core::settings::load();
+            app.manage(core::scheduler_ctl::new_ctl(current.refresh_interval_secs));
+            app.manage(core::scheduler::new_snapshots());
+            platform::tray::build_tray(app.handle())?;
 
-            let handle = app.handle().clone();
+            // 调度器运行：core 层不感知 Tauri，抓取完成通过闭包回发前端事件
+            let cache = app.state::<core::scheduler::Snapshots>().inner().clone();
+            let ctl = app.state::<core::scheduler_ctl::SchedulerCtl>().inner().clone();
+            let notify = {
+                let handle = app.handle().clone();
+                move || {
+                    let _ = handle.emit("snapshots-updated", ());
+                }
+            };
             tokio::spawn(async move {
-                scheduler::run(handle).await;
+                core::scheduler::run(cache, ctl, notify).await;
             });
-
-            // 调试钩子：TOKENMETER_AUTO_ADD_PROVIDER=1 时启动即打开添加供应商窗口，
-            // 便于复现/排查"添加供应商空白页"问题。
-            if std::env::var("TOKENMETER_AUTO_ADD_PROVIDER").as_deref() == Ok("1") {
-                let h = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = commands::open_add_provider(h) {
-                        log::error!("自动打开添加供应商窗口失败: {e}");
-                    }
-                });
-            }
             Ok(())
         })
         .on_window_event(|window, event| {

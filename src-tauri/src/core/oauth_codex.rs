@@ -165,7 +165,7 @@ where
     }
 
     // 换 token
-    let client = crate::providers::http_client();
+    let client = crate::core::providers::http_client();
     let resp = client
         .post(TOKEN_URL)
         .form(&[

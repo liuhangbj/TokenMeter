@@ -12,8 +12,8 @@
 //! 故按用户决策隐藏入口；企业版代码保留，未来官方开放个人版 API 时改回 true。
 
 use super::*;
-use crate::providers::tencent;
-use crate::providers::Brand;
+use crate::core::providers::tencent;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{json, Value};

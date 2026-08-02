@@ -8,7 +8,7 @@
 //!       日/周/月消耗统计，故仅取最近周期聚合值实时显示。
 
 use super::*;
-use crate::providers::Brand;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::{Datelike, Duration as ChronoDuration, Utc};
 use serde::Deserialize;

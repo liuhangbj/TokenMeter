@@ -6,7 +6,7 @@
 //!       （用户 2026-08-02 拍板，越轻越好），故只实时显示当前余额。
 
 use super::*;
-use crate::providers::Brand;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;

@@ -8,8 +8,8 @@
 //! ⚠️ API 版本 2026-03-22 为前瞻版本，真实字段需接入后校准。
 
 use super::*;
-use crate::providers::tencent;
-use crate::providers::Brand;
+use crate::core::providers::tencent;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{json, Value};

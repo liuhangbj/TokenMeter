@@ -14,7 +14,6 @@
     "core:window:allow-close",
     "core:webview:default",
     "shell:allow-open",
-    "store:default",
     "autostart:default",
     "updater:default",
     "updater:allow-check",

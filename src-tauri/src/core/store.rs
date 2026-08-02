@@ -16,7 +16,7 @@
 //! 这是无签名环境下的现实折中。
 #![allow(dead_code)]
 
-use crate::providers::Credential;
+use crate::core::providers::Credential;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
@@ -36,7 +36,7 @@ const KEY_FILE: &str = "credentials.key";
 
 /// 数据目录：macOS ~/Library/Application Support/TokenMeter，Windows %APPDATA%\TokenMeter
 /// 可用环境变量 TOKENMETER_DATA_DIR 覆盖（本机 dev 测试实例隔离数据用）。
-fn data_dir() -> Result<PathBuf> {
+pub(crate) fn data_dir() -> Result<PathBuf> {
     if let Ok(dir) = std::env::var("TOKENMETER_DATA_DIR") {
         if !dir.trim().is_empty() {
             return Ok(PathBuf::from(dir));
@@ -63,7 +63,7 @@ fn key_path() -> Result<PathBuf> {
 }
 
 /// 以 0600 权限写文件（Unix）；Windows 依赖用户级 AppData 的 ACL。
-fn write_private(path: &PathBuf, data: &[u8]) -> Result<()> {
+pub(crate) fn write_private(path: &PathBuf, data: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

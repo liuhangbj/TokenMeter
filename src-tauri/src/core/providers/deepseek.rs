@@ -6,7 +6,7 @@
 //!       只实时显示当前余额（total/granted/topped_up 三段）。
 
 use super::*;
-use crate::providers::Brand;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;

@@ -16,7 +16,7 @@
 //! 本机凭证探测：读 `~/.kimi/credentials/kimi-code.json`。
 
 use super::*;
-use crate::providers::Brand;
+use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
@@ -187,7 +187,7 @@ impl Provider for KimiCodeProvider {
     }
 
     async fn detect_local(&self) -> Option<Credential> {
-        let p = crate::providers::home_dir().join(".kimi/credentials/kimi-code.json");
+        let p = crate::core::providers::home_dir().join(".kimi/credentials/kimi-code.json");
         let s = fs::read_to_string(p).ok()?;
         let v = serde_json::from_str::<serde_json::Value>(&s).ok()?;
         let access = v.get("access_token")?.as_str()?;
