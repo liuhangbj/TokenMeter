@@ -71,9 +71,11 @@ jobs:
           Write-Output "INFO: MainWindowHandle=$($p.MainWindowHandle) MainWindowTitle='$($p.MainWindowTitle)'"
           # 关键：tao 框架在 Windows 上总会创建一个"消息窗口"（消息泵，尺寸 0、
           # 屏幕外、无标题、用户不可见），.NET 的 MainWindowHandle 会误判它为
-          # "可见窗口"。真正的用户可见窗口（崩溃框/面板/向导）必然带非空标题。
-          # 因此断言：handle 非 0 但标题为空 → 框架消息窗口，视为正常通过。
-          if ($p.MainWindowHandle -ne 0 -and $p.MainWindowTitle -ne '') {
+          # "可见窗口"。单实例插件还会创建一个标题为 "<identifier>-siw" 的
+          # 隐藏消息窗口。真正的用户可见窗口（崩溃框/面板/向导）必然带其他非空标题。
+          # 因此断言：handle 非 0 且标题为空或 -siw 结尾 → 框架消息窗口，视为正常通过。
+          $siw = $p.MainWindowTitle -like '*-siw'
+          if ($p.MainWindowHandle -ne 0 -and $p.MainWindowTitle -ne '' -and -not $siw) {
             throw "FAIL: 存在用户可见窗口 title='$($p.MainWindowTitle)'"
           }
           Write-Output "PASS: 无用户可见窗口"
