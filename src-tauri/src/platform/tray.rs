@@ -75,12 +75,16 @@ pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::Webvi
         .ok()
 }
 
-/// 切换面板显示/隐藏，并把面板定位到托盘图标旁边。
-/// 跨平台：macOS 菜单栏在屏幕顶部 → 面板向下弹；
-///          Windows 任务栏通常在底部 → 面板向上弹。
-/// 用【托盘图标所在显示器】做计算（不依赖窗口 current_monitor，
-/// 窗口未显示时 current_monitor 只给主屏，多显示器会错位）。
-fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
+/// 切换面板显示/隐藏并定位。
+/// - Windows：固定锚定【工作区右下角】（工作区自动扣除任务栏），
+///   面板底部始终贴在任务栏上方，首次/再次弹出位置完全一致，
+///   不依赖托盘 rect 的准确性，也不随面板高度变化而跳动。
+/// - macOS：菜单栏在顶部 → 面板在图标正下方弹出。
+fn toggle_panel(
+    app: &tauri::AppHandle,
+    _tray_rect: tauri::Rect,
+    _cursor: tauri::PhysicalPosition<f64>,
+) {
     let Some(window) = get_or_create_panel(app) else {
         log::warn!("toggle_panel: 面板窗口创建失败");
         return;
@@ -91,20 +95,6 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
         return;
     }
 
-    // tray_rect 的 position/size 是 Position/Size 枚举（逻辑或物理）。
-    // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
-    // 对 Logical 变体会用 scale 换算。这里取物理坐标。
-    let icon_x = tray_rect.position.to_physical::<f64>(1.0).x;
-    let icon_y = tray_rect.position.to_physical::<f64>(1.0).y;
-    let icon_w = tray_rect.size.to_physical::<u32>(1.0).width as f64;
-    let icon_h = tray_rect.size.to_physical::<u32>(1.0).height as f64;
-
-    // 用托盘坐标反查它所在的显示器（物理坐标）
-    let monitor = app
-        .monitor_from_point(icon_x, icon_y)
-        .ok()
-        .flatten();
-
     // 面板实际尺寸
     let win_size = window
         .outer_size()
@@ -113,36 +103,70 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
     let panel_w = win_size.0;
     let panel_h = win_size.1;
 
-    // 水平：居中于图标
-    let mut x = icon_x + (icon_w / 2.0) - (panel_w / 2.0);
-
-    // 垂直：图标在屏幕上半 → 向下弹；下半（Windows 任务栏）→ 向上弹
-    let mut y = icon_y + icon_h; // 默认向下
-    if let Some(m) = monitor {
-        let spos = m.position(); // 物理
-        let ssize = m.size();    // 物理
-        let screen_top = spos.y as f64;
-        let screen_h = ssize.height as f64;
-        let icon_center_y = icon_y + icon_h / 2.0;
-
-        if icon_center_y > screen_top + screen_h / 2.0 {
-            y = icon_y - panel_h; // 下半屏 → 向上弹
-        } else {
-            y = icon_y + icon_h;  // 上半屏 → 向下弹
+    #[cfg(target_os = "windows")]
+    {
+        // 用点击光标位置反查托盘所在显示器（比 tray_rect 可靠）
+        let monitor = app.monitor_from_point(_cursor.x, _cursor.y).ok().flatten();
+        if let Some(m) = monitor {
+            let wa = m.work_area(); // 物理坐标，已扣除任务栏
+            let margin = 8.0_f64;
+            // 右下角锚定：x/y 只与工作区与面板尺寸有关，与托盘 rect/面板高度无关
+            let x = (wa.position.x as f64 + wa.size.width as f64 - panel_w - margin)
+                .max(wa.position.x as f64 + 8.0);
+            let y = (wa.position.y as f64 + wa.size.height as f64 - panel_h - margin)
+                .max(wa.position.y as f64 + 8.0);
+            let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
         }
-
-        // 水平防越界（贴屏边缘收敛）
-        let max_x = spos.x as f64 + ssize.width as f64 - panel_w - 8.0;
-        let min_x = spos.x as f64 + 8.0;
-        x = x.clamp(min_x, max_x.max(min_x));
-
-        // 垂直防越界
-        let max_y = screen_top + screen_h - panel_h - 8.0;
-        let min_y = screen_top + 8.0;
-        y = y.clamp(min_y, max_y.max(min_y));
     }
 
-    let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+    #[cfg(not(target_os = "windows"))]
+    {
+        // tray_rect 的 position/size 是 Position/Size 枚举（逻辑或物理）。
+        // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
+        // 对 Logical 变体会用 scale 换算。这里取物理坐标。
+        let icon_x = _tray_rect.position.to_physical::<f64>(1.0).x;
+        let icon_y = _tray_rect.position.to_physical::<f64>(1.0).y;
+        let icon_w = _tray_rect.size.to_physical::<u32>(1.0).width as f64;
+        let icon_h = _tray_rect.size.to_physical::<u32>(1.0).height as f64;
+
+        // 用托盘坐标反查它所在的显示器（物理坐标）
+        let monitor = app
+            .monitor_from_point(icon_x, icon_y)
+            .ok()
+            .flatten();
+
+        // 水平：居中于图标
+        let mut x = icon_x + (icon_w / 2.0) - (panel_w / 2.0);
+
+        // 垂直：图标在屏幕上半 → 向下弹；下半 → 向上弹
+        let mut y = icon_y + icon_h; // 默认向下
+        if let Some(m) = monitor {
+            let spos = m.position(); // 物理
+            let ssize = m.size();    // 物理
+            let screen_top = spos.y as f64;
+            let screen_h = ssize.height as f64;
+            let icon_center_y = icon_y + icon_h / 2.0;
+
+            if icon_center_y > screen_top + screen_h / 2.0 {
+                y = icon_y - panel_h; // 下半屏 → 向上弹
+            } else {
+                y = icon_y + icon_h;  // 上半屏 → 向下弹
+            }
+
+            // 水平防越界（贴屏边缘收敛）
+            let max_x = spos.x as f64 + ssize.width as f64 - panel_w - 8.0;
+            let min_x = spos.x as f64 + 8.0;
+            x = x.clamp(min_x, max_x.max(min_x));
+
+            // 垂直防越界
+            let max_y = screen_top + screen_h - panel_h - 8.0;
+            let min_y = screen_top + 8.0;
+            y = y.clamp(min_y, max_y.max(min_y));
+        }
+
+        let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+    }
+
     let _ = window.show();
     let _ = window.set_focus();
 }
@@ -187,6 +211,7 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 rect,
+                position,
                 ..
             } = event
             {
@@ -202,7 +227,7 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
                 }
                 LAST_CLICK_MS.store(now, AtomicOrdering::Relaxed);
 
-                toggle_panel(tray.app_handle(), rect);
+                toggle_panel(tray.app_handle(), rect, position);
             }
         })
         .build(app)?;
