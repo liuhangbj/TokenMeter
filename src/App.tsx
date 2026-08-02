@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { ProviderSnapshot } from "./types";
 import { ProviderCard } from "./ProviderCard";
 import { SettingsPanel } from "./SettingsPanel";
+import { autoCheckOnLaunch } from "./updater";
 import { IconSettings, IconSort, IconCheck, IconRefresh } from "./icons";
 
 interface Settings {
@@ -71,6 +72,11 @@ export default function App() {
     invoke("on_panel_open").catch(console.error);
     load();
   }, [load]);
+
+  // 启动时静默检查更新（有新版则后台自动下载，设置区可见"重启完成更新"）
+  useEffect(() => {
+    autoCheckOnLaunch();
+  }, []);
 
   // 自适应窗口高度：内容渲染后量实际高度，resize 窗口（封顶 600，短则不滚动）
   useEffect(() => {

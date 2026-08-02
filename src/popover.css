@@ -252,6 +252,25 @@ html, body {
   color: var(--text-3);
   padding: 4px 0 2px;
 }
+.settings-update-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.settings-update-btn:hover:not(:disabled) { background: var(--card); color: var(--text-1); }
+.settings-update-btn:disabled { opacity: 0.6; cursor: default; }
+.settings-update-btn.has-update {
+  border-color: var(--good);
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+}
 
 /* ---- 上下箭头排序（位于卡片右上角、状态点左侧）---- */
 .card-drag-wrap { position: relative; }

@@ -1,6 +1,6 @@
 [package]
 name = "tokenmeter"
-version = "0.9.0"
+version = "0.9.1"
 description = "Cross-platform menu bar app for monitoring AI token/quota usage"
 authors = ["hangbits"]
 edition = "2021"
@@ -31,6 +31,8 @@ env_logger = "0.11"
 tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [features]
 # 默认不开启系统托盘原生菜单（我们手动构建）

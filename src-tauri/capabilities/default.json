@@ -15,6 +15,10 @@
     "core:webview:default",
     "shell:allow-open",
     "store:default",
-    "autostart:default"
+    "autostart:default",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:allow-restart"
   ]
 }

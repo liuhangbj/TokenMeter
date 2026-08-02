@@ -1,6 +1,13 @@
-// 设置区：开机启动勾选 + 后台刷新间隔下拉
+// 设置区：开机启动勾选 + 后台刷新间隔下拉 + 检查更新
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  subscribeUpdate,
+  checkForUpdate,
+  download,
+  relaunchToInstall,
+  type UpdateState,
+} from "./updater";
 
 interface Settings {
   launch_at_login: boolean;
@@ -20,10 +27,12 @@ export function SettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [options, setOptions] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: "idle" });
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setSettings).catch(console.error);
     invoke<number[]>("interval_options").then(setOptions).catch(console.error);
+    return subscribeUpdate(setUpdateState);
   }, []);
 
   const update = async (patch: Partial<Settings>) => {
@@ -41,6 +50,33 @@ export function SettingsPanel() {
   };
 
   if (!settings) return null;
+
+  const updateLabel = (() => {
+    switch (updateState.kind) {
+      case "idle": return "检查更新";
+      case "checking": return "检查中…";
+      case "none": return "已是最新版本";
+      case "available": return `下载 v${updateState.version}`;
+      case "downloading": return `下载中 ${updateState.percent}%`;
+      case "ready": return "重启完成更新";
+      case "error": return "重试检查更新";
+    }
+  })();
+
+  const onUpdateClick = async () => {
+    switch (updateState.kind) {
+      case "available":
+        await download();
+        break;
+      case "ready":
+        await relaunchToInstall();
+        break;
+      default:
+        await checkForUpdate();
+    }
+  };
+
+  const busy = updateState.kind === "checking" || updateState.kind === "downloading";
 
   return (
     <div className="settings">
@@ -68,6 +104,14 @@ export function SettingsPanel() {
           ))}
         </select>
       </label>
+
+      <button
+        className={`settings-update-btn ${updateState.kind === "available" || updateState.kind === "ready" ? "has-update" : ""}`}
+        onClick={onUpdateClick}
+        disabled={busy}
+      >
+        {updateLabel}
+      </button>
 
       <div className="settings-hint">打开面板时会立即刷新</div>
     </div>

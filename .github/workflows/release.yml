@@ -17,9 +17,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             bundle: dmg
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            bundle: dmg
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bundle: msi
@@ -46,10 +43,76 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          target: ${{ matrix.target }}
+          args: --target ${{ matrix.target }}
           tagName: v__VERSION__
           releaseName: "TokenMeter v__VERSION__"
           releaseBody: "见下方各平台安装包。"
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: false  # latest.json 由 merge job 合并后统一上传
+
+      # 把本平台生成的 updater json 存为 artifact（多平台同名会覆盖，不能直接传 release）
+      - name: Save updater json artifact
+        run: |
+          find src-tauri/target/release/bundle -name "latest.json" -exec cp {} latest.json \; 2>/dev/null || true
+          ls -la latest.json 2>/dev/null && echo "updater json found" || echo "no updater json (可能未生成)"
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: updater-${{ matrix.target }}
+          path: latest.json
+          if-no-files-found: ignore
+
+  # 合并所有平台的 latest.json 成一份完整清单，上传到 Release
+  merge-updater-json:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Get tag version
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: parts
+          pattern: updater-*
+          merge-multiple: true
+
+      - name: Merge updater JSONs
+        run: |
+          python3 - <<'EOF'
+          import json, glob
+
+          files = sorted(glob.glob("parts/*.json"))
+          if not files:
+              print("no latest.json found, skip merge")
+              raise SystemExit(0)
+
+          merged = None
+          for f in files:
+              data = json.load(open(f))
+              if merged is None:
+                  merged = data
+              else:
+                  for k, v in data.get("platforms", {}).items():
+                      merged.setdefault("platforms", {})[k] = v
+
+          json.dump(merged, open("latest-merged.json", "w"), indent=2)
+          print("merged platforms:", list(merged.get("platforms", {}).keys()))
+          EOF
+
+      - name: Upload merged latest.json
+        if: hashFiles('latest-merged.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          gh release delete-asset "$TAG" latest.json --yes 2>/dev/null || true
+          gh release upload "$TAG" latest-merged.json --clobber
+          echo "=== Release 上的 latest.json ==="
+          gh release view "$TAG" --json assets --jq '.assets[].name' | grep latest
