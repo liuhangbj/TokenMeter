@@ -19,7 +19,8 @@ export type WindowPeriod =
 export interface QuotaWindow {
   period: WindowPeriod;
   label: string;
-  used: number | null;      // 百分比（0-100）
+  used: number | null;      // 百分比（0-100），无上限窗口为 null
+  used_raw: number | null;  // 原始用量（金额 / token 数 / 请求数），用于数值文案
   limit: number | null;
   remaining: number | null;
   unit: QuotaUnit;
@@ -53,6 +54,7 @@ export interface ProviderSnapshot {
   fidelity: Fidelity;
   status: HealthStatus;
   fetched_at: number; // Unix 秒
+  last_error: string | null; // 最近一次抓取失败说明（成功为 null）
 }
 
 // ---------- 添加供应商向导的认证规格 ----------

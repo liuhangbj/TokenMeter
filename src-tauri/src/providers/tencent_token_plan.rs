@@ -16,7 +16,6 @@ use crate::providers::tencent;
 use crate::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::Client;
 use serde_json::{json, Value};
 
 pub struct TencentTokenPlanProvider;
@@ -80,7 +79,7 @@ impl Provider for TencentTokenPlanProvider {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 secret_key"))?;
 
-        let client = Client::new();
+        let client = super::http_client();
         let list = tencent::tencent_post(
             &client,
             "tokenhub",
@@ -131,27 +130,34 @@ impl Provider for TencentTokenPlanProvider {
 
         let remaining = resp
             .get("Remaining")
-            .and_then(|v| v.as_f64())
+            .and_then(tencent::value_num)
             .or_else(|| {
                 resp.get("Quota")
                     .and_then(|q| q.get("Remaining"))
-                    .and_then(|v| v.as_f64())
+                    .and_then(tencent::value_num)
             });
         let limit = resp
             .get("Total")
-            .and_then(|v| v.as_f64())
+            .and_then(tencent::value_num)
             .or_else(|| {
                 resp.get("Quota")
                     .and_then(|q| q.get("Total"))
-                    .and_then(|v| v.as_f64())
+                    .and_then(tencent::value_num)
             });
 
         let mut windows = vec![];
         if let (Some(rem), Some(lim)) = (remaining, limit) {
+            let used_raw = (lim - rem).max(0.0);
+            let used_pct = if lim > 0.0 {
+                Some((used_raw / lim * 100.0).min(100.0))
+            } else {
+                None
+            };
             windows.push(QuotaWindow {
                 period: WindowPeriod::Month,
                 label: "本月额度".into(),
-                used: Some(lim - rem),
+                used: used_pct,
+                used_raw: Some(used_raw),
                 limit: Some(lim),
                 remaining: Some(rem),
                 unit: QuotaUnit::Tokens,
@@ -169,6 +175,7 @@ impl Provider for TencentTokenPlanProvider {
             fidelity: Fidelity::Exact,
             status,
             fetched_at: Utc::now().timestamp(),
+            last_error: None,
         })
     }
 }

@@ -9,7 +9,6 @@ use super::*;
 use crate::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::Client;
 use serde::Deserialize;
 
 pub struct MoonshotProvider;
@@ -87,7 +86,7 @@ impl Provider for MoonshotProvider {
             ("https://api.moonshot.cn", "CNY")
         };
 
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .get(format!("{base}/v1/users/me/balance"))
             .bearer_auth(api_key)
@@ -117,6 +116,7 @@ impl Provider for MoonshotProvider {
             fidelity: Fidelity::Exact,
             status: HealthStatus::Ok,
             fetched_at: Utc::now().timestamp(),
+            last_error: None,
         })
     }
 }

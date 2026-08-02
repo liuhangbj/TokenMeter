@@ -84,11 +84,7 @@ struct TokenResp {
 }
 
 /// 在 1455 端口监听一次回调，返回 (code, state)。
-async fn wait_for_callback() -> Result<(String, String)> {
-    let listener = TcpListener::bind(("127.0.0.1", REDIRECT_PORT))
-        .await
-        .map_err(|e| anyhow!("无法监听端口 {REDIRECT_PORT}（可能已被 Codex CLI 占用）: {e}"))?;
-
+async fn wait_for_callback(listener: TcpListener) -> Result<(String, String)> {
     // 10 分钟超时
     let accept = tokio::time::timeout(std::time::Duration::from_secs(600), listener.accept())
         .await
@@ -152,9 +148,12 @@ where
 
     let url = authorize_url(&challenge, &state);
 
-    // 先绑定端口再开浏览器，避免回调到达时服务器还没起
-    let callback_task = tokio::spawn(wait_for_callback());
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await; // 给 bind 留点时间
+    // 先绑定端口再开浏览器：绑定失败立即报错（不开浏览器、不空等 10 分钟），
+    // 也消除了"回调先于 bind 到达"的竞态。
+    let listener = TcpListener::bind(("127.0.0.1", REDIRECT_PORT))
+        .await
+        .map_err(|e| anyhow!("无法监听回调端口 {REDIRECT_PORT}（可能已被 Codex CLI 占用）: {e}"))?;
+    let callback_task = tokio::spawn(wait_for_callback(listener));
     open_browser(url).await;
 
     let (code, cb_state) = callback_task
@@ -166,7 +165,7 @@ where
     }
 
     // 换 token
-    let client = reqwest::Client::new();
+    let client = crate::providers::http_client();
     let resp = client
         .post(TOKEN_URL)
         .form(&[

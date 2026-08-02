@@ -45,6 +45,8 @@ export default function App() {
   const [spinning, setSpinning] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [configured, setConfigured] = useState(false); // 是否已配置过 provider
+  const [gotUpdate, setGotUpdate] = useState(false);    // 是否收到过一次刷新完成事件
 
   // 加载设置（拿 card_order）
   useEffect(() => {
@@ -60,6 +62,12 @@ export default function App() {
     try {
       const data = await invoke<ProviderSnapshot[]>("get_snapshots");
       setSnaps(data);
+      if (data.length === 0) {
+        // 首屏防闪烁：启动时快照还没抓完，先确认是否已有配置，
+        // 避免把"正在获取"误显示成"还没有添加供应商"。
+        const has = await invoke<boolean>("has_configured_providers").catch(() => false);
+        setConfigured(has);
+      }
     } catch (e) {
       console.error("get_snapshots 失败", e);
     } finally {
@@ -105,7 +113,10 @@ export default function App() {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
-    const unlisten = listen("snapshots-updated", () => load());
+    const unlisten = listen("snapshots-updated", () => {
+      setGotUpdate(true);
+      load();
+    });
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
@@ -124,6 +135,17 @@ export default function App() {
       await invoke("open_add_provider");
     } catch {
       console.warn("open_add_provider command 尚未实现");
+    }
+  };
+
+  const onRemove = async (id: string) => {
+    const name = snaps.find((s) => s.provider_id === id)?.display_name ?? id;
+    if (!window.confirm(`确定移除「${name}」吗？将删除已保存的凭证。`)) return;
+    try {
+      await invoke("remove_provider", { providerId: id });
+      load();
+    } catch (e) {
+      console.error("移除供应商失败", e);
     }
   };
 
@@ -159,7 +181,7 @@ export default function App() {
       <div className="popover-head">
         <span className="popover-title">TokenMeter</span>
         <span className="spacer" />
-        {snaps.length > 1 && (
+        {snaps.length > 0 && (
           <button
             className={`icon-btn ${editMode ? "active" : ""}`}
             onClick={() => setEditMode((v) => !v)}
@@ -184,9 +206,15 @@ export default function App() {
         <div className="empty">加载中…</div>
       ) : snaps.length === 0 ? (
         <div className="empty">
-          还没有添加供应商
-          <br />
-          点击下方按钮开始
+          {configured && !gotUpdate ? (
+            "正在获取额度数据…"
+          ) : (
+            <>
+              还没有添加供应商
+              <br />
+              点击下方按钮开始
+            </>
+          )}
         </div>
       ) : (
         displayed.map((s, i) => (
@@ -208,6 +236,13 @@ export default function App() {
                   title="下移"
                 >
                   ↓
+                </button>
+                <button
+                  className="sort-btn danger"
+                  onClick={() => onRemove(s.provider_id)}
+                  title="移除供应商"
+                >
+                  ✕
                 </button>
               </div>
             )}

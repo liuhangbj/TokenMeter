@@ -1,4 +1,4 @@
-// 设置区：开机启动勾选 + 后台刷新间隔下拉 + 检查更新
+// 设置区：开机启动勾选 + 后台刷新间隔下拉 + 检查更新 + 退出应用
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -114,6 +114,14 @@ export function SettingsPanel() {
       </button>
 
       <div className="settings-hint">打开面板时会立即刷新</div>
+
+      <button
+        className="settings-quit-btn"
+        onClick={() => invoke("quit_app").catch(console.error)}
+        title="退出 TokenMeter"
+      >
+        退出应用
+      </button>
     </div>
   );
 }

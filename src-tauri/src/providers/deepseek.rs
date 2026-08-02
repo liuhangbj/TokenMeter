@@ -9,7 +9,6 @@ use super::*;
 use crate::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::Client;
 use serde::Deserialize;
 
 pub struct DeepSeekProvider;
@@ -68,7 +67,7 @@ impl Provider for DeepSeekProvider {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 api_key"))?;
 
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .get("https://api.deepseek.com/user/balance")
             .bearer_auth(api_key)
@@ -107,6 +106,7 @@ impl Provider for DeepSeekProvider {
                 HealthStatus::Exhausted
             },
             fetched_at: Utc::now().timestamp(),
+            last_error: None,
         })
     }
 }

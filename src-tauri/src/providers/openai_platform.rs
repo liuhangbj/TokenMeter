@@ -10,8 +10,7 @@
 use super::*;
 use crate::providers::Brand;
 use async_trait::async_trait;
-use chrono::{Utc, Duration as ChronoDuration};
-use reqwest::Client;
+use chrono::{Datelike, Duration as ChronoDuration, Utc};
 use serde::Deserialize;
 
 pub struct OpenAiPlatformProvider;
@@ -69,15 +68,31 @@ impl Provider for OpenAiPlatformProvider {
             .ok_or_else(|| anyhow::anyhow!("缺少 api_key"))?;
 
         let now = Utc::now();
-        let start_1d = (now - ChronoDuration::days(1)).timestamp();
-        let start_7d = (now - ChronoDuration::days(7)).timestamp();
-        let start_30d = (now - ChronoDuration::days(30)).timestamp();
+        // 日历口径：今日 0 点 / 本周一 0 点 / 本月 1 号 0 点（UTC，与 costs 接口桶对齐）。
+        // 之前用滚动 7/30 天但标成"本周/本月"，口径是错的。
+        let today = now.date_naive();
+        let start_day = today.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+        let days_from_monday = today.weekday().num_days_from_monday() as i64;
+        let start_week = (today - ChronoDuration::days(days_from_monday))
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp();
+        let start_month = today
+            .with_day(1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp();
+        // 查询起点取三者最早（通常就是月初），31 个日桶足够覆盖本月+本周+今日。
+        let start_query = start_month.min(start_week).min(start_day);
 
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .get("https://api.openai.com/v1/organization/costs")
             .query(&[
-                ("start_time", start_30d.to_string()),
+                ("start_time", start_query.to_string()),
                 ("bucket_width", "1d".to_string()),
                 ("limit", "31".to_string()),
             ])
@@ -94,13 +109,13 @@ impl Provider for OpenAiPlatformProvider {
         let mut month = 0.0;
         for b in &resp.data {
             if let Some(a) = b.amount {
-                if b.start_time >= start_1d {
+                if b.start_time >= start_day {
                     day += a;
                 }
-                if b.start_time >= start_7d {
+                if b.start_time >= start_week {
                     week += a;
                 }
-                if b.start_time >= start_30d {
+                if b.start_time >= start_month {
                     month += a;
                 }
             }
@@ -110,7 +125,8 @@ impl Provider for OpenAiPlatformProvider {
             QuotaWindow {
                 period: WindowPeriod::Day,
                 label: "今日花费".into(),
-                used: Some(day),
+                used: None,
+                used_raw: Some(day),
                 limit: None,
                 remaining: None,
                 unit: QuotaUnit::Currency("USD".into()),
@@ -119,7 +135,8 @@ impl Provider for OpenAiPlatformProvider {
             QuotaWindow {
                 period: WindowPeriod::Week,
                 label: "本周花费".into(),
-                used: Some(week),
+                used: None,
+                used_raw: Some(week),
                 limit: None,
                 remaining: None,
                 unit: QuotaUnit::Currency("USD".into()),
@@ -128,7 +145,8 @@ impl Provider for OpenAiPlatformProvider {
             QuotaWindow {
                 period: WindowPeriod::Month,
                 label: "本月花费".into(),
-                used: Some(month),
+                used: None,
+                used_raw: Some(month),
                 limit: None,
                 remaining: None,
                 unit: QuotaUnit::Currency("USD".into()),
@@ -146,6 +164,7 @@ impl Provider for OpenAiPlatformProvider {
             fidelity: Fidelity::Exact,
             status: HealthStatus::Ok,
             fetched_at: now_ts,
+            last_error: None,
         })
     }
 }

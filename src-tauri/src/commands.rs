@@ -89,10 +89,39 @@ pub fn open_add_provider(app: AppHandle) -> Result<(), String> {
         .title("添加供应商")
         .inner_size(480.0, 620.0)
         .resizable(false)
+        // 纯菜单栏：向导窗口也不占任务栏（Windows），不显示 Dock（macOS 由 Accessory 策略保证）
+        .skip_taskbar(true)
         .center()
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 移除一个已配置的 provider：删除加密凭证 + 清掉内存快照。
+#[tauri::command]
+pub fn remove_provider(
+    app: AppHandle,
+    cache: State<'_, Snapshots>,
+    provider_id: String,
+) -> Result<(), String> {
+    keychain::delete_credential(&provider_id).map_err(|e| e.to_string())?;
+    cache.write().unwrap().remove(&provider_id);
+    let _ = app.emit("snapshots-updated", ());
+    log::info!("已移除 provider: {provider_id}");
+    Ok(())
+}
+
+/// 是否已配置过任何 provider（前端区分"加载中"和"还没有添加供应商"）。
+#[tauri::command]
+pub fn has_configured_providers() -> bool {
+    !keychain::configured_provider_ids().is_empty()
+}
+
+/// 前端"退出应用"：先置 QUITTING 标志再退出，放行 main.rs 的 ExitRequested 守卫。
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    crate::QUITTING.store(true, std::sync::atomic::Ordering::Relaxed);
+    app.exit(0);
 }
 
 /// 保存 API Key / CloudSecret 类凭证：组装 Credential → 写 Keychain → 立即 fetch 验证。

@@ -271,6 +271,22 @@ html, body {
   color: var(--good);
   background: color-mix(in srgb, var(--good) 12%, transparent);
 }
+.settings-quit-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 0;
+  border: 1px solid color-mix(in srgb, var(--danger, #d54941) 40%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--danger, #d54941) 85%, var(--text-2));
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.settings-quit-btn:hover {
+  background: color-mix(in srgb, var(--danger, #d54941) 12%, transparent);
+  color: var(--danger, #d54941);
+}
 
 /* ---- 上下箭头排序（位于卡片右上角、状态点左侧）---- */
 .card-drag-wrap { position: relative; }
@@ -301,6 +317,16 @@ html, body {
 }
 .sort-btn:hover:not(:disabled) { background: var(--card); border-color: var(--good); }
 .sort-btn:disabled { opacity: 0.3; cursor: default; }
+.sort-btn.danger { border-color: color-mix(in srgb, var(--danger, #d54941) 45%, transparent); }
+.sort-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger, #d54941) 14%, transparent); border-color: var(--danger, #d54941); color: var(--danger, #d54941); }
+.foot-error {
+  color: var(--warn);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
 .icon-btn.active {
   background: color-mix(in srgb, var(--good) 18%, transparent);
   color: var(--good);

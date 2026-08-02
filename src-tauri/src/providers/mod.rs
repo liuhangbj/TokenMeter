@@ -18,7 +18,9 @@ pub mod tencent_tokenhub;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::sync::Arc;
+use std::time::Duration;
 
 // ---------- 统一数据模型 ----------
 
@@ -51,7 +53,11 @@ pub enum WindowPeriod {
 pub struct QuotaWindow {
     pub period: WindowPeriod,
     pub label: String,
+    /// 用量百分比（0-100）。无上限/成本型窗口为 None。
     pub used: Option<f64>,
+    /// 原始用量（金额 / token 数 / 请求数），用于无上限窗口展示与有上限窗口的数值文案。
+    #[serde(default)]
+    pub used_raw: Option<f64>,
     pub limit: Option<f64>,
     pub remaining: Option<f64>,
     pub unit: QuotaUnit,
@@ -97,6 +103,9 @@ pub struct ProviderSnapshot {
     pub fidelity: Fidelity,
     pub status: HealthStatus,
     pub fetched_at: i64,
+    /// 最近一次抓取失败的说明（成功时为 None）。失败时快照保留旧数据，仅更新此字段与 status。
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 // ---------- 品牌 / 认证规格 ----------
@@ -211,6 +220,19 @@ pub fn registry() -> Vec<Arc<dyn Provider>> {
 /// 调度器仍用完整 `registry()`（已配置凭证的隐藏 provider 继续抓取）。
 pub fn addable_registry() -> Vec<Arc<dyn Provider>> {
     registry().into_iter().filter(|p| p.enabled()).collect()
+}
+
+/// 统一的 HTTP 客户端：所有 provider / OAuth 流程共用，带连接与总超时。
+/// 之前每个请求都 `Client::new()`，默认无超时，一个不响应的连接会永久挂死调度器。
+pub fn http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .expect("构建 HTTP 客户端失败")
+    })
 }
 
 /// 跨平台用户主目录：macOS/Linux 用 $HOME，Windows 用 %USERPROFILE%。

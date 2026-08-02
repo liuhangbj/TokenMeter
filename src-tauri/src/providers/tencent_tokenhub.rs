@@ -12,7 +12,6 @@ use crate::providers::tencent;
 use crate::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::Client;
 use serde_json::{json, Value};
 
 pub struct TencentTokenHubProvider;
@@ -71,7 +70,7 @@ impl Provider for TencentTokenHubProvider {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 secret_key"))?;
 
-        let client = Client::new();
+        let client = super::http_client();
 
         // Token 用量
         let usage = tencent::tencent_post(
@@ -89,13 +88,30 @@ impl Provider for TencentTokenHubProvider {
         let usage_resp = usage.get("Response").cloned().unwrap_or(Value::Null);
         let total_token = usage_resp
             .get("TotalToken")
-            .and_then(|v| v.as_f64())
+            .and_then(tencent::value_num)
             .or_else(|| {
                 usage_resp
                     .get("TotalStats")
                     .and_then(|t| t.get("TotalToken"))
-                    .and_then(|v| v.as_f64())
+                    .and_then(tencent::value_num)
             });
+        let mut fidelity = Fidelity::Exact;
+        let mut windows = vec![];
+        if let Some(t) = total_token {
+            windows.push(QuotaWindow {
+                period: WindowPeriod::Month,
+                label: "本月 Token".into(),
+                used: None, // 无上限，前端按 used_raw + Tokens 单位展示
+                used_raw: Some(t),
+                limit: None,
+                remaining: None,
+                unit: QuotaUnit::Tokens,
+                reset_at: None,
+            });
+        } else {
+            log::warn!("TokenHub DescribeUsageRankList 未返回 TotalToken（字段路径待校准），本次用量缺失");
+            fidelity = Fidelity::Partial;
+        }
 
         // 账户余额
         let bal = tencent::tencent_post(
@@ -114,43 +130,42 @@ impl Provider for TencentTokenHubProvider {
         // 真实字段可能为 Balance / RealBalance，防御式解析
         let balance_total = bal_resp
             .get("Balance")
-            .and_then(|v| v.as_f64())
-            .or_else(|| bal_resp.get("RealBalance").and_then(|v| v.as_f64()))
-            .unwrap_or(0.0);
+            .and_then(tencent::value_num)
+            .or_else(|| bal_resp.get("RealBalance").and_then(tencent::value_num));
 
-        let mut windows = vec![];
-        if let Some(t) = total_token {
-            windows.push(QuotaWindow {
-                period: WindowPeriod::Month,
-                label: "本月 Token".into(),
-                used: Some(t),
-                limit: None,
-                remaining: None,
-                unit: QuotaUnit::Tokens,
-                reset_at: None,
-            });
-        }
+        let (balance, status) = match balance_total {
+            Some(v) => (
+                Some(Balance {
+                    total: v,
+                    granted: None,
+                    topped_up: None,
+                    currency: "CNY".into(),
+                    available: v > 0.0,
+                }),
+                if v > 0.0 {
+                    HealthStatus::Ok
+                } else {
+                    HealthStatus::Exhausted
+                },
+            ),
+            None => {
+                // 接口成功但字段缺失：明确标记降级，而不是把 0 当"余额耗尽"误报。
+                log::warn!("TokenHub DescribeAccountBalance 未返回 Balance/RealBalance，余额未知");
+                (None, HealthStatus::Degraded)
+            }
+        };
 
         Ok(ProviderSnapshot {
             provider_id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             plan_name: None,
             billing: BillingMode::PayAsYouGo,
-            balance: Some(Balance {
-                total: balance_total,
-                granted: None,
-                topped_up: None,
-                currency: "CNY".into(),
-                available: balance_total > 0.0,
-            }),
+            balance,
             windows,
-            fidelity: Fidelity::Exact,
-            status: if balance_total > 0.0 {
-                HealthStatus::Ok
-            } else {
-                HealthStatus::Exhausted
-            },
+            fidelity,
+            status,
             fetched_at: Utc::now().timestamp(),
+            last_error: None,
         })
     }
 }

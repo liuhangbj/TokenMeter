@@ -15,7 +15,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
-keyring = "3"
 hmac = "0.12"
 sha2 = "0.10"
 aes-gcm = "0.10"
@@ -33,6 +32,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 
 [features]
 # 默认不开启系统托盘原生菜单（我们手动构建）

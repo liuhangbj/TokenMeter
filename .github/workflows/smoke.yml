@@ -40,6 +40,14 @@ jobs:
       - name: Build release binary
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
 
+      # 上传编译产物：本机没有 Windows 环境时，从这里取 exe 做真机部署/测试
+      - name: Upload dev binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tokenmeter-windows-x64
+          path: src-tauri/target/release/tokenmeter.exe
+          if-no-files-found: error
+
       - name: Launch app (background)
         shell: pwsh
         env:

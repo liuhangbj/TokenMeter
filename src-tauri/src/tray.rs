@@ -3,14 +3,16 @@
 //! 图标：专用菜单栏模板图（纯黑剪影 + 透明底），`icon_as_template(true)` 让
 //! macOS 按菜单栏明暗自动渲染为黑/白 —— 原生感关键。图标字节编译期嵌入。
 //!
-//! 弹窗：左键点托盘图标 → 把无装饰面板定位到图标正下方/上方显示；失焦自动隐藏。
-//! 纯菜单栏 App：启动零窗口，唯一可见窗口是添加供应商向导（按需创建）。
+//! 弹窗：左键点托盘图标 → 把无装饰面板定位到托盘图标旁边；失焦自动隐藏。
+//! 纯菜单栏 App：启动零窗口（tauri.conf.json windows: []），面板首次点击才创建，
+//! 之后隐藏复用；所有窗口 skipTaskbar，macOS 由 LSUIElement + Accessory 策略隐藏 Dock。
+
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconEvent},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 
@@ -27,29 +29,7 @@ const PANEL_W: i32 = 380;
 /// 托盘单击防抖间隔（毫秒）：双击的第二击在此窗口内被忽略
 const CLICK_DEBOUNCE_MS: u64 = 300;
 /// 上次托盘点击的毫秒时间戳（双击防抖用）
-static LAST_CLICK_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// 获取（不存在则创建）popover 面板窗口。
-/// 纯菜单栏架构：启动时不创建任何窗口，点托盘图标第一次才创建，
-/// 因此 macOS/Windows 上都不会有"窗口进程"（WebView 子进程只在面板打开时存在）。
-fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-    if let Some(w) = app.get_webview_window("popover") {
-        return Some(w);
-    }
-    WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
-        .title("TokenMeter")
-        .inner_size(PANEL_W as f64, 600.0)
-        .resizable(false)
-        .decorations(false)
-        // macOS：透明窗口 + 圆角外透明；Windows：透明不可靠且实色面板不需要
-        .transparent(cfg!(target_os = "macos"))
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false) // 创建后由 toggle_panel 定位再显示
-        .build()
-        .map_err(|e| log::error!("创建面板窗口失败: {e}"))
-        .ok()
-}
+static LAST_CLICK_MS: AtomicU64 = AtomicU64::new(0);
 
 /// 托盘图标与"是否模板图"按平台选择。
 /// macOS 用模板剪影 + icon_as_template(true)；Windows 用彩色图 + 非模板。
@@ -70,6 +50,28 @@ fn tray_icon() -> (Image<'static>, bool) {
     }
 }
 
+/// 获取（不存在则创建）popover 面板窗口。
+/// 纯菜单栏架构：启动时零窗口（tauri.conf.json windows: []），点托盘图标第一次才创建，
+/// 之后隐藏复用（不销毁，避免 Windows 上"最后窗口关闭 → 进程退出"类问题）。
+fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(w) = app.get_webview_window("popover") {
+        return Some(w);
+    }
+    WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
+        .title("TokenMeter")
+        .inner_size(PANEL_W as f64, 600.0)
+        .resizable(false)
+        .decorations(false)
+        // macOS：透明窗口 + 圆角外透明；Windows：透明不可靠且实色面板不需要
+        .transparent(cfg!(target_os = "macos"))
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false) // 创建后由 toggle_panel 定位再显示
+        .build()
+        .map_err(|e| log::error!("创建面板窗口失败: {e}"))
+        .ok()
+}
+
 /// 切换面板显示/隐藏，并把面板定位到托盘图标旁边。
 /// 跨平台：macOS 菜单栏在屏幕顶部 → 面板向下弹；
 ///          Windows 任务栏通常在底部 → 面板向上弹。
@@ -81,16 +83,12 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
         return;
     };
     if window.is_visible().unwrap_or(false) {
-        // 面板已打开 → 点击收起。直接销毁窗口（而非 hide），
-        // 让 WebView 子进程一并回收，保持"纯菜单栏、无窗口痕迹"。
-        log::info!("toggle_panel: 收起面板");
-        let _ = window.close();
+        // 面板已打开 → 点击收起（hide 复用窗口，不销毁）
+        let _ = window.hide();
         return;
     }
 
-    log::info!("toggle_panel: 弹出面板");
-
-    // tray_rect 的 position/size 是 tauri::Position/Size 枚举（逻辑或物理）。
+    // tray_rect 的 position/size 是 Position/Size 枚举（逻辑或物理）。
     // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
     // 对 Logical 变体会用 scale 换算。这里取物理坐标。
     let icon_x = tray_rect.position.to_physical::<f64>(1.0).x;
@@ -103,7 +101,6 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
         .monitor_from_point(icon_x, icon_y)
         .ok()
         .flatten();
-    log::info!("toggle_panel: 托盘坐标 ({icon_x:.0},{icon_y:.0}) 显示器={}", monitor.is_some());
 
     // 面板实际尺寸
     let win_size = window
@@ -142,10 +139,8 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
         y = y.clamp(min_y, max_y.max(min_y));
     }
 
-    log::info!("toggle_panel: 定位 ({x:.0},{y:.0})");
     let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
     let _ = window.show();
-    log::info!("toggle_panel: 已显示，请求焦点");
     let _ = window.set_focus();
 }
 
@@ -165,12 +160,14 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "quit" => {
                 log::info!("用户退出");
+                // 先置标志再请求退出：ExitRequested 守卫见 main.rs，
+                // 只有用户明确退出才放行。
+                crate::QUITTING.store(true, AtomicOrdering::Relaxed);
                 app.exit(0);
                 // 兜底：Windows 上偶发事件循环不退出（WebView2 子进程挂起），
                 // 3 秒后强制结束进程，避免"只能任务管理器杀"。
                 std::thread::spawn(|| {
                     std::thread::sleep(std::time::Duration::from_secs(3));
-                    log::info!("退出兜底：强制结束进程");
                     std::process::exit(0);
                 });
             }
@@ -190,26 +187,25 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
                 ..
             } = event
             {
-                // 双击防抖：macOS/Windows 双击会触发两次 Click(Up)，
-                // 第一击弹出面板、第二击立刻 close 销毁 → 观感"闪退"。
-                // 300ms 内的第二次点击直接忽略，双击只算一次单击。
+                // 双击防抖：Windows 双击会触发两次 Click(Up)，
+                // 第一击弹出面板、第二击立刻收起 → 观感"闪退"。
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
                     .unwrap_or(0);
-                let last = LAST_CLICK_MS.load(std::sync::atomic::Ordering::Relaxed);
+                let last = LAST_CLICK_MS.load(AtomicOrdering::Relaxed);
                 if now.saturating_sub(last) < CLICK_DEBOUNCE_MS {
                     return;
                 }
-                LAST_CLICK_MS.store(now, std::sync::atomic::Ordering::Relaxed);
+                LAST_CLICK_MS.store(now, AtomicOrdering::Relaxed);
 
                 toggle_panel(tray.app_handle(), rect);
             }
         })
         .build(app)?;
 
-    // 保活：Tauri 2 中 TrayIcon 被 drop 会移除托盘图标，
-    // 因此把句柄注册进 app 的托管状态（不 drop）。
+    // 保活：Tauri 2 文档说明 TrayIcon 最后一个实例被 drop 会移除托盘图标，
+    // 注册进 app 托管状态确保存活（资源表也会持有一份，双保险）。
     app.manage(TrayHandle(_tray));
 
     Ok(())

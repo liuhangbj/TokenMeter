@@ -56,7 +56,7 @@ fn apply_common_headers(builder: reqwest::RequestBuilder) -> reqwest::RequestBui
 
 /// 第一步：请求设备码。
 pub async fn start() -> Result<DeviceAuthStart> {
-    let client = reqwest::Client::new();
+    let client = crate::providers::http_client();
     let req = client
         .post(DEVICE_AUTH_URL)
         .form(&[("client_id", CLIENT_ID)]);
@@ -89,7 +89,7 @@ struct TokenResp {
 
 /// 第二步：轮询直到用户授权（或超时）。返回凭证 JSON。
 pub async fn poll_until_authorized(device_code: &str, interval_secs: u64) -> Result<serde_json::Value> {
-    let client = reqwest::Client::new();
+    let client = crate::providers::http_client();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600);
     let mut wait = interval_secs.max(3);
 

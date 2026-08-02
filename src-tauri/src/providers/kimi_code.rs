@@ -19,7 +19,6 @@ use super::*;
 use crate::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use std::fs;
@@ -155,6 +154,7 @@ fn make_window(period: WindowPeriod, label: &str, unit: QuotaUnit, d: &QuotaDeta
         period,
         label: label.to_string(),
         used: used_pct,
+        used_raw: used,
         limit,
         remaining,
         unit,
@@ -210,7 +210,7 @@ impl Provider for KimiCodeProvider {
         let Some(rt) = refresh_token else {
             return Ok(None);
         };
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .post(TOKEN_URL)
             .form(&[
@@ -247,7 +247,7 @@ impl Provider for KimiCodeProvider {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 access_token"))?;
 
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .get(USAGES_URL)
             .bearer_auth(access)
@@ -266,6 +266,7 @@ impl Provider for KimiCodeProvider {
                 fidelity: Fidelity::Exact,
                 status: HealthStatus::AuthExpired,
                 fetched_at: Utc::now().timestamp(),
+                last_error: None,
             });
         }
 
@@ -317,7 +318,7 @@ impl Provider for KimiCodeProvider {
         // "本月 Extra Usage 限额 100、已用 monthlyUsed"，应以额度条呈现
         // （used/limit，货币单位），与 5h/周窗口同一视觉语言。
         if let Some(bw) = &body.booster_wallet {
-            let limit = bw
+            let limit_cents = bw
                 .monthly_charge_limit
                 .as_ref()
                 .and_then(|m| m.price_in_cents.as_ref())
@@ -333,20 +334,20 @@ impl Provider for KimiCodeProvider {
                 .as_ref()
                 .and_then(|m| m.currency.clone())
                 .unwrap_or_else(|| "CNY".to_string());
-            if let Some(limit_cents) = limit {
-                let limit_yuan = limit_cents / 100.0;
-                let used_yuan = used / 100.0;
-                let used_pct = if limit_yuan > 0.0 {
-                    (used_yuan / limit_yuan * 100.0).min(100.0)
-                } else {
-                    0.0
-                };
+            let limit_yuan = limit_cents.map(|c| c / 100.0);
+            let used_yuan = used / 100.0;
+            let used_pct = match limit_yuan {
+                Some(l) if l > 0.0 => Some((used_yuan / l * 100.0).min(100.0)),
+                _ => None,
+            };
+            if limit_yuan.is_some() || used_yuan > 0.0 {
                 windows.push(QuotaWindow {
                     period: WindowPeriod::Month,
                     label: "Extra Usage".to_string(),
-                    used: Some(used_pct),
-                    limit: Some(limit_yuan),
-                    remaining: Some((limit_yuan - used_yuan).max(0.0)),
+                    used: used_pct,
+                    used_raw: Some(used_yuan),
+                    limit: limit_yuan,
+                    remaining: limit_yuan.map(|l| (l - used_yuan).max(0.0)),
                     unit: QuotaUnit::Currency(currency),
                     reset_at: None,
                 });
@@ -363,6 +364,7 @@ impl Provider for KimiCodeProvider {
             fidelity: Fidelity::Exact,
             status: HealthStatus::Ok,
             fetched_at: Utc::now().timestamp(),
+            last_error: None,
         })
     }
 }

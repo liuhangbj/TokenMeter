@@ -19,7 +19,6 @@ use super::*;
 use crate::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 use std::fs;
@@ -124,6 +123,7 @@ fn to_window(w: &WindowInfo) -> Option<QuotaWindow> {
         period,
         label: label.to_string(),
         used: pct,
+        used_raw: None,
         limit: Some(100.0),
         remaining: pct.map(|p| (100.0 - p).max(0.0)),
         unit: QuotaUnit::Percent,
@@ -191,7 +191,7 @@ impl Provider for CodexProvider {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .post(TOKEN_URL)
             .form(&[
@@ -230,7 +230,7 @@ impl Provider for CodexProvider {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let client = Client::new();
+        let client = super::http_client();
         let resp = client
             .get(USAGE_URL)
             .bearer_auth(access)
@@ -250,6 +250,7 @@ impl Provider for CodexProvider {
                 fidelity: Fidelity::Exact,
                 status: HealthStatus::AuthExpired,
                 fetched_at: Utc::now().timestamp(),
+                last_error: None,
             });
         }
 
@@ -306,6 +307,7 @@ impl Provider for CodexProvider {
             fidelity: Fidelity::Exact,
             status: HealthStatus::Ok,
             fetched_at: Utc::now().timestamp(),
+            last_error: None,
         })
     }
 }

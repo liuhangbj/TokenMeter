@@ -3,7 +3,8 @@
 //! 用户 2026-08-02 原则：除 App 本体外不产生未知临时文件。
 //! 设置走 `tauri-plugin-store`（JSON 存系统标准应用配置目录，卸载随 App 走，
 //! 非散落临时文件）。开机启动走 `tauri-plugin-autostart`（系统登录项/注册表，
-//! 不产生用户可见文件）。凭证仍在 Keychain。三者分工清晰。
+//! 不产生用户可见文件）。凭证走 AES-256-GCM 加密文件（随机主密钥，见 keychain.rs）。
+//! 三者分工清晰。
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;

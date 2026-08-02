@@ -67,6 +67,21 @@ npx tauri dev        # 开发模式（热更新）
 npx tauri build      # 构建安装包
 ```
 
+### 本机测试构建 / 部署
+
+```bash
+scripts/dev-deploy.sh               # debug 构建 → 部署 → 直接启动 App
+scripts/dev-deploy.sh --install     # 构建并安装到 ~/Applications/TokenMeter Dev.app
+scripts/dev-deploy.sh --release     # release 构建
+scripts/dev-deploy.sh --no-run      # 只构建不启动
+scripts/dev-deploy.sh --isolate     # 独立数据目录，不影响正式版凭证/设置
+```
+
+- 产物：`src-tauri/target/<profile>/tokenmeter` 与 `.../bundle/macos/TokenMeter.app`
+- 启动日志：`/tmp/tokenmeter-dev.log`；停止：`kill $(cat /tmp/tokenmeter-dev.pid)`
+- 本机没有签名私钥时自动跳过 updater 签名产物；正式发布仍走 GitHub Actions
+- 测试前请先退出正式版 TokenMeter（单实例锁会让第二个实例直接退出）
+
 ### 架构
 
 ```
