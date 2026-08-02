@@ -1,6 +1,6 @@
 [package]
 name = "tokenmeter"
-version = "0.1.0"
+version = "0.9.0"
 description = "Cross-platform menu bar app for monitoring AI token/quota usage"
 authors = ["hangbits"]
 edition = "2021"
