@@ -59,6 +59,17 @@ pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), Str
     };
     let wpx = width.clamp(320.0, 560.0);
     let h = height.clamp(120.0, 800.0);
+
+    // 尺寸未变化时直接跳过：避免"显示后又重定位"造成的闪切
+    let scale = w.scale_factor().unwrap_or(1.0);
+    let cur = w
+        .inner_size()
+        .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
+        .unwrap_or((0.0, 0.0));
+    if (cur.0 - wpx).abs() <= 2.0 && (cur.1 - h).abs() <= 2.0 {
+        return Ok(());
+    }
+
     let size = tauri::LogicalSize::new(wpx, h);
     w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())?;
 
@@ -78,6 +89,13 @@ pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), Str
         }
     }
     Ok(())
+}
+
+/// 前端首次测量完成（WebView 就绪）上报：
+/// 若托盘已有点击待显示，则立即定位并显示面板（延迟显示防闪切）。
+#[tauri::command]
+pub fn panel_ready(app: AppHandle) {
+    crate::platform::tray::on_panel_ready(&app);
 }
 
 /// 读取设置（core 层文件存储）。

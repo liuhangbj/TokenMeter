@@ -87,6 +87,7 @@ async fn main() {
             commands::has_configured_providers,
             commands::quit_app,
             commands::log_frontend_error,
+            commands::panel_ready,
         ])
         .setup(|app| {
             // 平台启动配置（macOS Accessory 策略隐藏 Dock）

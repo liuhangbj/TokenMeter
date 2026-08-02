@@ -101,6 +101,7 @@ export default function App() {
   // 宽度随视图变化（主面板 380 / 添加供应商向导约 506），高度随内容走（封顶 800）。
   const lastSize = useRef({ w: 0, h: 0 });
   const pendingTimer = useRef<number | null>(null);
+  const readySent = useRef(false);
   useEffect(() => {
     const el = document.querySelector(".popover");
     if (!el) return;
@@ -117,7 +118,15 @@ export default function App() {
       // 纠正 Windows WebView2 偶发未跟随窗口尺寸的竞态。
       if (!force && w === lastSize.current.w && h === lastSize.current.h) return;
       lastSize.current = { w, h };
-      invoke("resize_popover", { width: w, height: h }).catch(() => {});
+      invoke("resize_popover", { width: w, height: h })
+        .then(() => {
+          // 首次测量完成：通知后端可以定位并显示了（延迟显示，避免闪切）
+          if (!readySent.current) {
+            readySent.current = true;
+            invoke("panel_ready").catch(() => {});
+          }
+        })
+        .catch(() => {});
     };
     // 尾随防抖：内容频繁变化时合并为一次最终尺寸，减少 resize 竞态
     const schedule = () => {
