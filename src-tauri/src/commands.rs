@@ -60,7 +60,24 @@ pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), Str
     let wpx = width.clamp(320.0, 560.0);
     let h = height.clamp(120.0, 800.0);
     let size = tauri::LogicalSize::new(wpx, h);
-    w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())
+    w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())?;
+
+    // Windows：尺寸变化后立即按【工作区右下角】重新锚定。
+    // 否则窗口变大时保持左上角不动，右/下边会伸出去盖住任务栏或出屏
+    // （表现为"切到添加供应商后位置不对，再次弹出才正确"）。
+    #[cfg(target_os = "windows")]
+    {
+        if let (Ok(Some(m)), Ok(os)) = (w.current_monitor(), w.outer_size()) {
+            let wa = m.work_area(); // 物理坐标，已扣除任务栏
+            let margin = 8.0_f64;
+            let x = (wa.position.x as f64 + wa.size.width as f64 - os.width as f64 - margin)
+                .max(wa.position.x as f64 + 8.0);
+            let y = (wa.position.y as f64 + wa.size.height as f64 - os.height as f64 - margin)
+                .max(wa.position.y as f64 + 8.0);
+            let _ = w.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+        }
+    }
+    Ok(())
 }
 
 /// 读取设置（core 层文件存储）。
