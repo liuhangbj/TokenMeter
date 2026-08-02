@@ -126,6 +126,26 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// 前端 JS 错误上报（写入后端日志，便于远程排查空白页等）。
+#[tauri::command]
+pub fn log_frontend_error(msg: String) {
+    log::error!("[frontend] {msg}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addable_providers_are_nonempty_and_serializable() {
+        let list = list_addable_providers();
+        assert_eq!(list.len(), 6, "应返回 6 个可添加 provider");
+        let json = serde_json::to_string(&list).expect("AddableProvider 序列化失败");
+        assert!(json.contains("\"kind\":\"oauth\""));
+        assert!(json.contains("\"kind\":\"api_key\""));
+    }
+}
+
 /// 保存 API Key / CloudSecret 类凭证：组装 Credential → 写 Keychain → 立即 fetch 验证。
 #[tauri::command]
 pub async fn save_api_key_provider(

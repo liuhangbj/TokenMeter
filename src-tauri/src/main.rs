@@ -89,6 +89,7 @@ async fn main() {
             commands::remove_provider,
             commands::has_configured_providers,
             commands::quit_app,
+            commands::log_frontend_error,
         ])
         .setup(|app| {
             // 纯菜单栏：运行时也强制 Accessory 策略（不显示 Dock / Cmd+Tab），
@@ -106,6 +107,17 @@ async fn main() {
             tokio::spawn(async move {
                 scheduler::run(handle).await;
             });
+
+            // 调试钩子：TOKENMETER_AUTO_ADD_PROVIDER=1 时启动即打开添加供应商窗口，
+            // 便于复现/排查"添加供应商空白页"问题。
+            if std::env::var("TOKENMETER_AUTO_ADD_PROVIDER").as_deref() == Ok("1") {
+                let h = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::open_add_provider(h) {
+                        log::error!("自动打开添加供应商窗口失败: {e}");
+                    }
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

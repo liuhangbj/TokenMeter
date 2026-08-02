@@ -3,17 +3,49 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { AddProvider } from "./AddProvider";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import "./theme.css";
 import "./popover.css";
 import "./wizard.css";
 
+// 全局 JS 错误兜底：任何未捕获错误直接把原文显示在页面上（排查空白页），
+// 并同步上报到后端日志（TOKENMETER_LOG_FILE）。
+function showFatalError(msg: string) {
+  const el = document.getElementById("root");
+  if (el) {
+    el.innerHTML =
+      `<div style="font:12px/1.6 monospace;color:#d33;background:#fff;padding:20px;white-space:pre-wrap;word-break:break-all">` +
+      msg.replace(/&/g, "&amp;").replace(/</g, "&lt;") +
+      `</div>`;
+  }
+  invoke("log_frontend_error", { msg }).catch(() => {});
+}
+window.addEventListener("error", (e) => {
+  showFatalError(`[error] ${e.message}\n${e.filename}:${e.lineno}`);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  showFatalError(`[unhandledrejection] ${String(e.reason)}`);
+});
+
 // 根据【窗口 label】决定渲染哪个界面（跨平台最稳，不依赖 URL query）：
 // - add-provider 窗口 → 添加供应商向导（独立窗口）
 // - popover / 默认     → 托盘下拉面板
-const label = getCurrentWindow().label;
+let label = "";
+let initError: string | null = null;
+try {
+  label = getCurrentWindow().label;
+} catch (e) {
+  initError = `[getCurrentWindow] ${String(e)}`;
+}
 const isAddWizard = label === "add-provider";
 
+// 启动标记：区分"页面未加载"与"JS 崩溃"。日志里出现 [boot] 说明页面已加载。
+invoke("log_frontend_error", { msg: `[boot] label=${label} url=${location.href}` }).catch(() => {});
+
 function Root() {
+  if (initError) {
+    return <div style={{ font: "12px/1.6 monospace", color: "#d33", padding: 20, whiteSpace: "pre-wrap" }}>{initError}</div>;
+  }
   if (isAddWizard) {
     return <AddProvider onDone={() => window.close()} />;
   }
