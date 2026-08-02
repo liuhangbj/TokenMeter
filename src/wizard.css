@@ -4,7 +4,6 @@
   width: 480px;
   min-height: 100vh;
   background: var(--bg);
-  backdrop-filter: blur(30px) saturate(200%);
   padding: 24px 24px 32px;
   color: var(--text-1);
 }
