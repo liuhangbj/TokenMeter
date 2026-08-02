@@ -73,9 +73,17 @@ export default function App() {
     load();
   }, [load]);
 
-  // 启动时静默检查更新（有新版则后台自动下载，设置区可见"重启完成更新"）
+  // 静默检查更新（有新版则后台自动下载，设置区可见"重启完成更新"）。
+  // 面板窗口按需重建（纯菜单栏架构），每次打开都会重新加载前端，
+  // 用 localStorage 防抖：24 小时内只检查一次，避免频繁请求 GitHub。
   useEffect(() => {
-    autoCheckOnLaunch();
+    const KEY = "tm_last_update_check";
+    const now = Date.now();
+    const last = Number(localStorage.getItem(KEY) ?? 0);
+    if (now - last > 24 * 3600 * 1000) {
+      localStorage.setItem(KEY, String(now));
+      autoCheckOnLaunch();
+    }
   }, []);
 
   // 自适应窗口高度：内容渲染后量实际高度，resize 窗口（封顶 600，短则不滚动）

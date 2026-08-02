@@ -11,21 +11,7 @@
   },
   "app": {
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "popover",
-        "title": "TokenMeter",
-        "width": 380,
-        "height": 800,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "focus": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

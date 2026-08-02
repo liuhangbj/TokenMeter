@@ -55,10 +55,12 @@ async fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 点别处 / 切走时，popover 面板自动隐藏
+            // 点别处 / 切走时，popover 面板自动关闭（销毁窗口 + 回收 WebView，
+            // 保持"纯菜单栏 App"：关闭后系统里不留任何窗口/子进程痕迹）。
+            // 注意：add-provider 向导不在此列（OAuth 授权时要切浏览器，不能关）。
             if window.label() == "popover" {
                 if let tauri::WindowEvent::Focused(false) = event {
-                    let _ = window.hide();
+                    let _ = window.close();
                 }
             }
         })

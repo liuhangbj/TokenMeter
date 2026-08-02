@@ -85,7 +85,7 @@ pub fn open_add_provider(app: AppHandle) -> Result<(), String> {
         let _ = w.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, "add-provider", WebviewUrl::App("index.html?add=1".into()))
+    WebviewWindowBuilder::new(&app, "add-provider", WebviewUrl::App("index.html".into()))
         .title("添加供应商")
         .inner_size(480.0, 620.0)
         .resizable(false)

@@ -3,14 +3,15 @@
 //! 图标：专用菜单栏模板图（纯黑剪影 + 透明底），`icon_as_template(true)` 让
 //! macOS 按菜单栏明暗自动渲染为黑/白 —— 原生感关键。图标字节编译期嵌入。
 //!
-//! 弹窗：左键点托盘图标 → 把无装饰面板定位到图标正下方显示；失焦自动隐藏。
+//! 弹窗：左键点托盘图标 → 把无装饰面板定位到图标正下方/上方显示；失焦自动隐藏。
+//! 纯菜单栏 App：启动零窗口，唯一可见窗口是添加供应商向导（按需创建）。
 
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconEvent},
     tray::TrayIconBuilder,
-    Manager, PhysicalPosition,
+    Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 
 /// 菜单栏模板图标（编译期嵌入，RGBA 原始字节，64×64）
@@ -21,8 +22,30 @@ const MENUBAR_RGBA: &[u8] = include_bytes!("../icons/menubar.rgba");
 #[cfg(not(target_os = "macos"))]
 const TRAY_COLOR_RGBA: &[u8] = include_bytes!("../icons/tray_color.rgba");
 const MENUBAR_SIZE: u32 = 64;
-/// 面板宽度（与 tauri.conf.json 的 popover 窗口一致）
+/// 面板宽度（与前端 CSS 一致）
 const PANEL_W: i32 = 380;
+
+/// 获取（不存在则创建）popover 面板窗口。
+/// 纯菜单栏架构：启动时不创建任何窗口，点托盘图标第一次才创建，
+/// 因此 macOS/Windows 上都不会有"窗口进程"（WebView 子进程只在面板打开时存在）。
+fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(w) = app.get_webview_window("popover") {
+        return Some(w);
+    }
+    WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
+        .title("TokenMeter")
+        .inner_size(PANEL_W as f64, 600.0)
+        .resizable(false)
+        .decorations(false)
+        // macOS：透明窗口 + 圆角外透明；Windows：透明不可靠且实色面板不需要
+        .transparent(cfg!(target_os = "macos"))
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false) // 创建后由 toggle_panel 定位再显示
+        .build()
+        .map_err(|e| log::error!("创建面板窗口失败: {e}"))
+        .ok()
+}
 
 /// 托盘图标与"是否模板图"按平台选择。
 /// macOS 用模板剪影 + icon_as_template(true)；Windows 用彩色图 + 非模板。
@@ -43,30 +66,37 @@ fn tray_icon() -> (Image<'static>, bool) {
     }
 }
 
-/// 切换面板显示/隐藏，并把面板定位到托盘图标正下方。
+/// 切换面板显示/隐藏，并把面板定位到托盘图标旁边。
+/// 跨平台：macOS 菜单栏在屏幕顶部 → 面板向下弹；
+///          Windows 任务栏通常在底部 → 面板向上弹。
+/// 用【托盘图标所在显示器】做计算（不依赖窗口 current_monitor，
+/// 窗口未显示时 current_monitor 只给主屏，多显示器会错位）。
 fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
-    let Some(window) = app.get_webview_window("popover") else {
+    let Some(window) = get_or_create_panel(app) else {
         return;
     };
     if window.is_visible().unwrap_or(false) {
-        let _ = window.hide();
+        // 面板已打开 → 点击收起。直接销毁窗口（而非 hide），
+        // 让 WebView 子进程一并回收，保持"纯菜单栏、无窗口痕迹"。
+        let _ = window.close();
         return;
     }
 
-    // tray_rect.position/size 是 Position/Size 枚举（逻辑或物理），
-    // 必须用【显示器的真实 scale_factor】转物理坐标——Retina 是 2.0，
-    // 之前误传 1.0 导致坐标少算一半、面板跑偏到屏幕中间（用户反馈）。
-    let scale = window
-        .current_monitor()
+    // tray_rect 的 position/size 是 tauri::Position/Size 枚举（逻辑或物理）。
+    // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
+    // 对 Logical 变体会用 scale 换算。这里取物理坐标。
+    let icon_x = tray_rect.position.to_physical::<f64>(1.0).x;
+    let icon_y = tray_rect.position.to_physical::<f64>(1.0).y;
+    let icon_w = tray_rect.size.to_physical::<u32>(1.0).width as f64;
+    let icon_h = tray_rect.size.to_physical::<u32>(1.0).height as f64;
+
+    // 用托盘坐标反查它所在的显示器（物理坐标）
+    let monitor = app
+        .monitor_from_point(icon_x, icon_y)
         .ok()
-        .flatten()
-        .map(|m| m.scale_factor())
-        .unwrap_or(1.0);
+        .flatten();
 
-    let icon_pos = tray_rect.position.to_physical::<f64>(scale);
-    let icon_size = tray_rect.size.to_physical::<f64>(scale);
-
-    // 面板实际尺寸（用于向上弹出与越界计算）
+    // 面板实际尺寸
     let win_size = window
         .outer_size()
         .map(|s| (s.width as f64, s.height as f64))
@@ -75,34 +105,29 @@ fn toggle_panel(app: &tauri::AppHandle, tray_rect: tauri::Rect) {
     let panel_h = win_size.1;
 
     // 水平：居中于图标
-    let mut x = icon_pos.x + (icon_size.width / 2.0) - (panel_w / 2.0);
+    let mut x = icon_x + (icon_w / 2.0) - (panel_w / 2.0);
 
-    // 垂直：跨平台自适应弹出方向。
-    // macOS 菜单栏在屏幕【顶部】→ 面板向【下】展开；
-    // Windows 托盘在任务栏【底部】→ 面板向【上】展开。
-    // 判定：图标中心在屏幕垂直中线以上则向下弹，否则向上弹。
-    let mut y = icon_pos.y + icon_size.height; // 默认向下
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let screen = monitor.size();
-        let spos = monitor.position();
+    // 垂直：图标在屏幕上半 → 向下弹；下半（Windows 任务栏）→ 向上弹
+    let mut y = icon_y + icon_h; // 默认向下
+    if let Some(m) = monitor {
+        let spos = m.position(); // 物理
+        let ssize = m.size();    // 物理
         let screen_top = spos.y as f64;
-        let screen_h = screen.height as f64;
-        let icon_center_y = icon_pos.y + icon_size.height / 2.0;
+        let screen_h = ssize.height as f64;
+        let icon_center_y = icon_y + icon_h / 2.0;
 
         if icon_center_y > screen_top + screen_h / 2.0 {
-            // 图标在下半屏（Windows 任务栏）→ 向上弹出
-            y = icon_pos.y - panel_h;
+            y = icon_y - panel_h; // 下半屏 → 向上弹
         } else {
-            // 图标在上半屏（macOS 菜单栏）→ 向下弹出
-            y = icon_pos.y + icon_size.height;
+            y = icon_y + icon_h;  // 上半屏 → 向下弹
         }
 
-        // 水平防越界
-        let max_x = spos.x as f64 + screen.width as f64 - panel_w - 8.0;
+        // 水平防越界（贴屏边缘收敛）
+        let max_x = spos.x as f64 + ssize.width as f64 - panel_w - 8.0;
         let min_x = spos.x as f64 + 8.0;
         x = x.clamp(min_x, max_x.max(min_x));
 
-        // 垂直防越界（向上弹出时顶部不出屏；向下弹出时底部不出屏则上收）
+        // 垂直防越界
         let max_y = screen_top + screen_h - panel_h - 8.0;
         let min_y = screen_top + 8.0;
         y = y.clamp(min_y, max_y.max(min_y));
@@ -127,8 +152,23 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
         .show_menu_on_left_click(false) // 左键用于弹面板，菜单走右键
         .tooltip("TokenMeter")
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
-            "refresh" => log::info!("用户触发刷新"),
+            "quit" => {
+                log::info!("用户退出");
+                app.exit(0);
+                // 兜底：Windows 上偶发事件循环不退出（WebView2 子进程挂起），
+                // 3 秒后强制结束进程，避免"只能任务管理器杀"。
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    log::info!("退出兜底：强制结束进程");
+                    std::process::exit(0);
+                });
+            }
+            "refresh" => {
+                log::info!("用户触发刷新");
+                if let Some(ctl) = app.try_state::<crate::scheduler_ctl::SchedulerCtl>() {
+                    ctl.trigger_refresh();
+                }
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -144,5 +184,13 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
         })
         .build(app)?;
 
+    // 保活：Tauri 2 中 TrayIcon 被 drop 会移除托盘图标，
+    // 因此把句柄注册进 app 的托管状态（不 drop）。
+    app.manage(TrayHandle(_tray));
+
     Ok(())
 }
+
+/// 托盘句柄（保活用：字段不读，仅持有以防 TrayIcon 被 drop 移除托盘图标）
+#[allow(dead_code)]
+pub struct TrayHandle(pub tauri::tray::TrayIcon);
