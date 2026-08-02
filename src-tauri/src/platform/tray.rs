@@ -4,11 +4,11 @@
 //! macOS 按菜单栏明暗自动渲染为黑/白 —— 原生感关键。图标字节编译期嵌入。
 //!
 //! 弹窗：左键点托盘图标 → 把无装饰面板定位到托盘图标旁边；失焦自动隐藏。
-//! 纯菜单栏 App：启动零窗口（tauri.conf.json windows: []），面板首次点击才创建，
-//! 之后隐藏复用；所有窗口 skipTaskbar，macOS 由 LSUIElement + Accessory 策略隐藏 Dock。
+//! 纯菜单栏 App：启动时创建隐藏面板（前端后台完成测量/定型），
+//! 首次点击托盘时直接以最终尺寸定位显示；之后隐藏复用；
+//! 所有窗口 skipTaskbar，macOS 由 LSUIElement + Accessory 策略隐藏 Dock。
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering as AtomicOrdering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use tauri::{
     image::Image,
@@ -32,16 +32,6 @@ const CLICK_DEBOUNCE_MS: u64 = 300;
 /// 上次托盘点击的毫秒时间戳（双击防抖用）
 static LAST_CLICK_MS: AtomicU64 = AtomicU64::new(0);
 
-/// 面板 WebView 是否已就绪（前端首次测量并完成 resize 后上报）。
-/// 就绪前托盘点击只记录"待显示"，不 show——
-/// 避免"先按初始尺寸定位显示、再 resize 重定位"造成的闪切。
-pub(crate) static PANEL_READY: AtomicBool = AtomicBool::new(false);
-/// 托盘已点击、等待面板就绪后显示
-pub(crate) static PANEL_PENDING: AtomicBool = AtomicBool::new(false);
-/// 最近一次托盘点击位置（就绪后延迟显示用）
-static LAST_TRAY_RECT: Mutex<Option<tauri::Rect>> = Mutex::new(None);
-static LAST_TRAY_CURSOR: Mutex<Option<tauri::PhysicalPosition<f64>>> = Mutex::new(None);
-
 /// 托盘图标与"是否模板图"按平台选择。
 /// macOS 用模板剪影 + icon_as_template(true)；Windows 用彩色图 + 非模板。
 fn tray_icon() -> (Image<'static>, bool) {
@@ -62,7 +52,7 @@ fn tray_icon() -> (Image<'static>, bool) {
 }
 
 /// 获取（不存在则创建）popover 面板窗口。
-/// 纯菜单栏架构：启动时零窗口（tauri.conf.json windows: []），点托盘图标第一次才创建，
+/// 启动时由 main 预先创建（隐藏），前端在后台完成测量与尺寸定型；
 /// 之后隐藏复用（不销毁，避免 Windows 上"最后窗口关闭 → 进程退出"类问题）。
 pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     if let Some(w) = app.get_webview_window("popover") {
@@ -86,18 +76,6 @@ pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::Webvi
         .ok()
 }
 
-/// 前端首次测量完成上报：若有点击待显示，则立即定位并显示。
-pub(crate) fn on_panel_ready(app: &tauri::AppHandle) {
-    PANEL_READY.store(true, AtomicOrdering::Relaxed);
-    if PANEL_PENDING.swap(false, AtomicOrdering::Relaxed) {
-        let rect = LAST_TRAY_RECT.lock().unwrap().clone();
-        let cursor = LAST_TRAY_CURSOR.lock().unwrap().clone();
-        if let (Some(rect), Some(cursor)) = (rect, cursor) {
-            position_and_show(app, rect, cursor);
-        }
-    }
-}
-
 /// 切换面板显示/隐藏并定位。
 /// - Windows：固定锚定【工作区右下角】（工作区自动扣除任务栏），
 ///   面板底部始终贴在任务栏上方，首次/再次弹出位置完全一致，
@@ -108,9 +86,6 @@ fn toggle_panel(
     tray_rect: tauri::Rect,
     cursor: tauri::PhysicalPosition<f64>,
 ) {
-    *LAST_TRAY_RECT.lock().unwrap() = Some(tray_rect);
-    *LAST_TRAY_CURSOR.lock().unwrap() = Some(cursor);
-
     let Some(window) = get_or_create_panel(app) else {
         log::warn!("toggle_panel: 面板窗口创建失败");
         return;
@@ -118,18 +93,6 @@ fn toggle_panel(
     if window.is_visible().unwrap_or(false) {
         // 面板已打开 → 点击收起（hide 复用窗口，不销毁）
         let _ = window.hide();
-        return;
-    }
-
-    // WebView 未就绪时先不显示：等前端量好尺寸（panel_ready）再一次性定位显示，
-    // 避免"先弹初始尺寸、再 resize 重定位"的闪切。第二次点击兜底强制显示。
-    if !PANEL_READY.load(AtomicOrdering::Relaxed) {
-        if PANEL_PENDING.swap(true, AtomicOrdering::Relaxed) {
-            log::info!("toggle_panel: WebView 未就绪，二次点击兜底显示");
-            position_and_show(app, tray_rect, cursor);
-        } else {
-            log::info!("toggle_panel: 等待 WebView 就绪后延迟显示");
-        }
         return;
     }
 

@@ -94,13 +94,6 @@ pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), Str
     Ok(())
 }
 
-/// 前端首次测量完成（WebView 就绪）上报：
-/// 若托盘已有点击待显示，则立即定位并显示面板（延迟显示防闪切）。
-#[tauri::command]
-pub fn panel_ready(app: AppHandle) {
-    crate::platform::tray::on_panel_ready(&app);
-}
-
 /// 读取设置（core 层文件存储）。
 #[tauri::command]
 pub fn get_settings() -> Settings {

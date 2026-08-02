@@ -87,7 +87,6 @@ async fn main() {
             commands::has_configured_providers,
             commands::quit_app,
             commands::log_frontend_error,
-            commands::panel_ready,
         ])
         .setup(|app| {
             // 平台启动配置（macOS Accessory 策略隐藏 Dock）
@@ -98,6 +97,10 @@ async fn main() {
             app.manage(core::scheduler_ctl::new_ctl(current.refresh_interval_secs));
             app.manage(core::scheduler::new_snapshots());
             platform::tray::build_tray(app.handle())?;
+
+            // 启动即创建隐藏面板：前端在后台完成测量与尺寸定型，
+            // 首次点托盘时直接以最终尺寸定位显示，杜绝"先弹再重定位"闪切。
+            let _ = platform::tray::get_or_create_panel(app.handle());
 
             // 调度器运行：core 层不感知 Tauri，抓取完成通过闭包回发前端事件
             let cache = app.state::<core::scheduler::Snapshots>().inner().clone();
