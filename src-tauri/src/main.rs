@@ -115,14 +115,15 @@ async fn main() {
             // 并通知前端进入"添加供应商"视图（UI 抓屏/布局调试用）。
             if std::env::var("TOKENMETER_AUTO_PANEL").as_deref() == Ok("1") {
                 let handle = app.handle().clone();
+                let h2 = handle.clone();
                 // Windows 上 WebviewWindow 必须在主线程创建（异步任务会拿到
                 // 无效窗口句柄导致白屏/窗口缺失），因此用 run_on_main_thread。
                 let _ = handle.run_on_main_thread(move || {
-                    if let Some(w) = platform::tray::get_or_create_panel(&handle) {
+                    if let Some(w) = platform::tray::get_or_create_panel(&h2) {
                         let _ = w.show();
                         let _ = w.set_focus();
                     }
-                    let _ = handle.emit("debug-auto-panel", ());
+                    let _ = h2.emit("debug-auto-panel", ());
                 });
             }
             Ok(())
