@@ -1,0 +1,56 @@
+/* TokenMeter 设计 token —— 移植自 design/popover-preview.html
+   品牌主色系（官方核实）+ 5 段用量警示色 + 明暗主题 */
+
+:root {
+  color-scheme: light dark;
+
+  /* 5 段用量警示色（满=危险，只作用于有百分比上限的额度/套餐包条） */
+  --lv1: #7ed79b;  /* <50%   浅绿 */
+  --lv2: #2ba471;  /* 50-80  深绿 */
+  --lv3: #e37318;  /* 80-90  橙   */
+  --lv4: #d54941;  /* 90-100 红   */
+  --lv5: #9e2b25;  /* 用完   深红 */
+
+  /* 语义色 */
+  --good: #2ba471;
+  --warn: #e37318;
+  --bad:  #d54941;
+  --stale:#9aa0a6;
+}
+
+/* 明暗主题的表面/文字色 */
+:root {
+  /* 不透明实色背景：避免透明窗口 + 半透明 CSS 的异步渲染导致下层内容透出（用户反馈） */
+  --bg:        #f5f5f7;
+  --surface:   #ececee;
+  --card:      #ffffff;
+  --border:    rgba(0, 0, 0, 0.08);
+  --text-1:    #1a1a1a;
+  --text-2:    #5a5a5e;
+  --text-3:    #9aa0a6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:      #1c1c1e;
+    --surface: #2c2c2e;
+    --card:    #262628;
+    --border:  rgba(255, 255, 255, 0.1);
+    --text-1:  #f2f2f2;
+    --text-2:  #b8b8bc;
+    --text-3:  #7a7a7e;
+  }
+}
+
+/* 品牌主色系（每平台一套 --accent / --accent-2，用于卡片左侧渐变条 + 品牌点） */
+[data-brand="openai"]   { --accent: #10a37f; --accent-2: #0c8a6b; }
+[data-brand="codex"]    { --accent: #10a37f; --accent-2: #0c8a6b; }
+[data-brand="kimi"]     { --accent: #1a1a1a; --accent-2: #000000; }
+[data-brand="moonshot"] { --accent: #1a1a1a; --accent-2: #000000; }
+[data-brand="deepseek"] { --accent: #4d6bfe; --accent-2: #3a52e6; }
+[data-brand="tencent"]  { --accent: #0052d9; --accent-2: #0046b8; }
+
+/* 深色模式下黑色品牌自动提亮，否则黑条在深色面板里看不见 */
+@media (prefers-color-scheme: dark) {
+  [data-brand="kimi"],
+  [data-brand="moonshot"] { --accent: #5a5a60; --accent-2: #3a3a40; }
+}

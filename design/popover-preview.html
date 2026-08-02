@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TokenMeter · 下拉面板预览</title>
+<style>
+  /* ============ 设计系统 Token ============ */
+  :root {
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Inter", system-ui, sans-serif;
+    --popover-w: 380px;
+    --radius-card: 18px;
+    --radius-sm: 9px;
+    --radius-pill: 999px;
+    /* 浅色 */
+    --bg: #ececed;
+    --panel: rgba(255,255,255,0.74);
+    --panel-solid: #ffffff;
+    --card: rgba(255,255,255,0.66);
+    --card-hover: rgba(255,255,255,0.92);
+    --card-border: rgba(0,0,0,0.06);
+    --text: #1d1d1f;
+    --text-2: #6e6e73;
+    --text-3: #9a9aa0;
+    --track: rgba(0,0,0,0.07);
+    --hairline: rgba(0,0,0,0.07);
+    --hover: rgba(0,0,0,0.035);
+    --shadow: 0 22px 60px rgba(0,0,0,0.22), 0 3px 10px rgba(0,0,0,0.08);
+    --good: #34c759;
+    --warn: #ff9f0a;
+    --bad: #ff3b30;
+    --stale: #8e8e93;
+    --blur: 34px;
+  }
+  [data-theme="dark"] {
+    --bg: #161618;
+    --panel: rgba(28,28,30,0.72);
+    --panel-solid: #1c1c1e;
+    --card: rgba(44,44,48,0.5);
+    --card-hover: rgba(54,54,58,0.72);
+    --card-border: rgba(255,255,255,0.09);
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #76767b;
+    --track: rgba(255,255,255,0.10);
+    --hairline: rgba(255,255,255,0.10);
+    --hover: rgba(255,255,255,0.05);
+    --shadow: 0 26px 70px rgba(0,0,0,0.6), 0 3px 12px rgba(0,0,0,0.45);
+    --good: #30d158;
+    --warn: #ffd60a;
+    --bad: #ff453a;
+    --stale: #8e8e93;
+  }
+  /* 品牌主色系（官方核实）
+     OpenAI  → 签名绿 #10a37f（与 Kimi 黑区分；黑是另一官方色）
+     Kimi / Moonshot → 月之暗面官方仅黑白，均用黑 #000000（同一公司，按产品名区分）
+     DeepSeek → 电光蓝 #4d6bfe（Wikidata sRGB 确认）
+     腾讯     → 腾讯蓝 #0052d9（Pantone 2728C） */
+  [data-brand="openai"]   { --accent:#10a37f; --accent-2:#0c8a6b; }
+  [data-brand="codex"]    { --accent:#10a37f; --accent-2:#0c8a6b; }
+  [data-brand="kimi"]     { --accent:#000000; --accent-2:#2b2b2e; }
+  [data-brand="moonshot"] { --accent:#000000; --accent-2:#2b2b2e; }
+  [data-brand="deepseek"] { --accent:#4d6bfe; --accent-2:#3a52e6; }
+  [data-brand="tencent"]  { --accent:#0052d9; --accent-2:#0046b8; }
+  /* 深色模式下黑色品牌提亮，否则进度条/圆点不可见 */
+  [data-theme="dark"] [data-brand="kimi"],
+  [data-theme="dark"] [data-brand="moonshot"] { --accent:#5a5a60; --accent-2:#3a3a40; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(80,120,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(140,90,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    transition: background .4s ease, color .4s ease;
+    display: flex; flex-direction: column; align-items: center;
+    padding-top: 0;
+  }
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  /* ============ 仿真 macOS 菜单栏 ============ */
+  .menubar {
+    width: 100%; height: 28px;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 16px; font-size: 13px; color: #1d1d1f;
+    position: sticky; top: 0; z-index: 50;
+  }
+  [data-theme="dark"] .menubar { background: rgba(20,20,22,0.7); color: #f5f5f7; border-color: rgba(255,255,255,0.08); }
+  .menubar .apple { font-size: 15px; opacity: .9; }
+  .menubar .item { opacity: .85; font-weight: 500; }
+  .menubar .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .tray-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 22px; border-radius: 6px; cursor: pointer;
+    transition: background .15s ease;
+  }
+  .tray-btn:hover { background: rgba(0,0,0,0.06); }
+  [data-theme="dark"] .tray-btn:hover { background: rgba(255,255,255,0.10); }
+  .tray-btn svg { width: 17px; height: 17px; }
+  .tray-dot { position: relative; }
+  .tray-dot::after {
+    content: ""; position: absolute; top: -2px; right: -2px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--bad); box-shadow: 0 0 0 2px var(--bg);
+  }
+
+  /* ============ 下拉面板（popover） ============ */
+  .stage { flex: 1; width: 100%; display: flex; justify-content: center; position: relative; }
+  .popover {
+    position: absolute; top: 14px;
+    width: var(--popover-w);
+    background: var(--panel);
+    backdrop-filter: saturate(180%) blur(var(--blur));
+    -webkit-backdrop-filter: saturate(180%) blur(var(--blur));
+    border: 1px solid var(--card-border);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    opacity: 0; transform: translateY(-8px) scale(.98);
+    transform-origin: top right;
+    pointer-events: none;
+    transition: opacity .22s cubic-bezier(.16,1,.3,1), transform .22s cubic-bezier(.16,1,.3,1);
+  }
+  .popover.open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  @media (prefers-reduced-motion: reduce) { .popover { transition: none; } }
+
+  .pop-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 15px 16px 12px;
+  }
+  .pop-title { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
+  .pop-sub { font-size: 11.5px; color: var(--text-3); margin-top: 1px; }
+  .pop-head .spacer { flex: 1; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 9px; border: none;
+    background: transparent; color: var(--text-2); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .15s ease, color .15s ease, transform .15s ease;
+  }
+  .icon-btn:hover { background: var(--hover); color: var(--text); }
+  .icon-btn:active { transform: scale(.92); }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  .pop-body { padding: 4px 12px 10px; max-height: 64vh; overflow-y: auto; }
+  .pop-body::-webkit-scrollbar { width: 8px; }
+  .pop-body::-webkit-scrollbar-thumb { background: var(--track); border-radius: 8px; }
+
+  .pop-foot {
+    display: flex; gap: 10px; padding: 10px 14px 14px;
+    border-top: 1px solid var(--hairline);
+  }
+  .add-btn {
+    flex: 1; height: 38px; border-radius: 11px; border: 1px solid var(--card-border);
+    background: var(--card-hover); color: var(--text);
+    font-size: 13.5px; font-weight: 600; font-family: var(--font); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
+  }
+  .add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,0.10); }
+  .add-btn:active { transform: translateY(0); }
+  .add-btn svg { width: 15px; height: 15px; }
+
+  /* ============ 卡片（统一壳） ============ */
+  .card {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-card);
+    padding: 14px 15px 13px;
+    margin: 8px 4px;
+    transition: transform .18s cubic-bezier(.16,1,.3,1), background .2s ease, box-shadow .2s ease;
+  }
+  .card:hover { background: var(--card-hover); transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,0.10); }
+  .card::before {
+    content: ""; position: absolute; left: 0; top: 14px; bottom: 14px;
+    width: 3px; border-radius: 3px; background: linear-gradient(var(--accent), var(--accent-2));
+    opacity: .9;
+  }
+  .card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+  .brand-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+    flex: none;
+  }
+  .card-name { font-size: 13.5px; font-weight: 650; }
+  .plan-badge {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .3px;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+    padding: 2px 8px; border-radius: var(--radius-pill);
+  }
+  .card-head .spacer { flex: 1; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex: none;
+    background: var(--good);
+  }
+  .status-dot.warn { background: var(--warn); }
+  .status-dot.bad  { background: var(--bad); }
+  .status-dot.stale{ background: var(--stale); }
+  /* 用量提醒 5 段（状态点同步） */
+  .status-dot.lv1 { background:#7ed79b; }
+  .status-dot.lv2 { background:#2ba471; }
+  .status-dot.lv3 { background:#e37318; }
+  .status-dot.lv4 { background:#d54941; }
+  .status-dot.lv5 { background:#9e2b25; }
+
+  /* 额度进度行 */
+  .wrow { margin: 9px 0; }
+  .wrow-top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+  .wrow-label { font-size: 12px; color: var(--text-2); font-weight: 550; }
+  .wrow-pct { font-size: 12.5px; font-weight: 700; margin-left: auto; }
+  .wrow-reset { font-size: 10.5px; color: var(--text-3); }
+  .bar { height: 7px; border-radius: var(--radius-pill); background: var(--track); overflow: hidden; position: relative; }
+  .bar > i {
+    display: block; height: 100%; border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    width: 0; transition: width 1s cubic-bezier(.16,1,.3,1);
+    position: relative; overflow: hidden;
+  }
+  /* 用量提醒 5 段配色（满 = 危险） */
+  .bar > i.lv1 { background: linear-gradient(90deg, #9fe3b6, #7ed79b); } /* <50% 浅绿 */
+  .bar > i.lv2 { background: linear-gradient(90deg, #3fbf86, #2ba471); } /* 50–80% 深绿 */
+  .bar > i.lv3 { background: linear-gradient(90deg, #f08a3a, #e37318); } /* 80–90% 橙 */
+  .bar > i.lv4 { background: linear-gradient(90deg, #e2685f, #d54941); } /* 90–100% 红 */
+  .bar > i.lv5 { background: linear-gradient(90deg, #b8362e, #9e2b25); } /* 用完 深红 */
+  .bar > i::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+    transform: translateX(-100%); animation: shimmer 2.2s infinite;
+  }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+
+  /* 余额 hero */
+  .hero { display: flex; align-items: flex-end; gap: 8px; margin: 2px 0 12px; }
+  .hero-num { font-size: 30px; font-weight: 750; letter-spacing: -.5px; line-height: 1; }
+  .hero-cur { font-size: 15px; font-weight: 650; color: var(--text-2); margin-bottom: 3px; }
+  .hero-tag {
+    margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 3px 9px;
+    border-radius: var(--radius-pill); color: var(--text-2);
+    background: var(--hover); border: 1px solid var(--card-border);
+  }
+  .hero-tag.est { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); border-color: transparent; }
+
+  /* 消耗明细行 */
+  .crow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--hairline); }
+  .crow:first-of-type { border-top: none; }
+  .crow-label { font-size: 12px; color: var(--text-2); width: 42px; flex: none; font-weight: 550; }
+  .crow-mini { flex: 1; height: 5px; border-radius: var(--radius-pill); background: var(--track); overflow: hidden; }
+  .crow-mini > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: inherit; width: 0; transition: width 1s cubic-bezier(.16,1,.3,1); }
+  .crow-amt { font-size: 12.5px; font-weight: 700; text-align: right; min-width: 78px; }
+  .crow-tok { font-size: 10.5px; color: var(--text-3); text-align: right; min-width: 78px; }
+
+  /* 套餐包 */
+  .pkg-status {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 650;
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent);
+  }
+  .pkg-status.stop { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .pkg-ratio { font-size: 12.5px; font-weight: 700; color: var(--text-2); }
+  .pkg-remain { font-size: 22px; font-weight: 750; margin: 8px 0 2px; letter-spacing: -.3px; }
+  .pkg-note { font-size: 11px; color: var(--text-3); }
+  .pkg-note.stop { color: var(--bad); }
+
+  /* 卡片底状态行 */
+  .card-foot {
+    display: flex; align-items: center; gap: 8px; margin-top: 11px;
+    padding-top: 9px; border-top: 1px solid var(--hairline);
+    font-size: 10.5px; color: var(--text-3);
+  }
+  .fid {
+    display: inline-flex; align-items: center; gap: 5px; font-weight: 650;
+  }
+  .fid .d { width: 6px; height: 6px; border-radius: 50%; }
+  .fid.exact .d { background: var(--good); }
+  .fid.est .d { background: transparent; border: 1.5px solid var(--warn); }
+  .fid.partial .d { background: var(--warn); }
+  .card-foot .spacer { flex: 1; }
+
+  /* 提示条 */
+  .hint {
+    text-align: center; margin: 28px auto 0; max-width: 560px; padding: 0 24px;
+    color: var(--text-2); font-size: 13px; line-height: 1.7;
+  }
+  .hint b { color: var(--text); font-weight: 650; }
+  .kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    background: var(--hover); border: 1px solid var(--card-border);
+    padding: 1px 6px; border-radius: 6px; color: var(--text);
+  }
+  .legend { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+  .legend span { font-size: 11.5px; color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+
+<!-- 仿真菜单栏 -->
+<div class="menubar">
+  <span class="apple">&#63743;</span>
+  <span class="item">TokenMeter</span>
+  <span class="item">文件</span>
+  <span class="item">编辑</span>
+  <span class="item">视图</span>
+  <div class="right">
+    <span class="item">&#9788; 多云 24&deg;</span>
+    <span class="tray-btn tray-dot" id="trayBtn" title="点击打开用量面板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12h4l2 6 4-14 2 8h6"/>
+      </svg>
+    </span>
+  </div>
+</div>
+
+<div class="stage">
+  <!-- 下拉面板 -->
+  <div class="popover" id="popover">
+    <div class="pop-head">
+      <div>
+        <div class="pop-title">用量总览</div>
+        <div class="pop-sub" id="popSub">8 个供应商 · 实时同步</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="refreshBtn" title="刷新">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" title="切换明暗">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </div>
+    <div class="pop-body" id="cards"></div>
+    <div class="pop-foot">
+      <button class="add-btn" id="addBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        添加供应商
+      </button>
+    </div>
+  </div>
+</div>
+
+<p class="hint">
+  点击右上角菜单栏的 <b>TokenMeter 图标</b> 即可唤出下拉面板 —— 没有主窗口，符合你的要求。<br/>
+  面板按各平台能拿到的数据，复用 <b>4 种标准卡片模板</b>，同一套设计语言（品牌色 + 进度条 + 状态点 + 可信度标签）。
+</p>
+<div class="legend">
+  <span><i style="background:#7ed79b"></i>&lt;50% 浅绿</span>
+  <span><i style="background:#2ba471"></i>50–80% 深绿</span>
+  <span><i style="background:#e37318"></i>80–90% 橙</span>
+  <span><i style="background:#d54941"></i>90–100% 红</span>
+  <span><i style="background:#9e2b25"></i>用完 深红</span>
+  <span><i style="background:transparent;border:1.5px solid var(--warn)"></i>推算（余额差分）</span>
+</div>
+
+<script>
+/* ============ 数据：直接对应 Rust ProviderSnapshot ============
+   每条带 template 提示（真实工程中由前端按 billing/windows 推导） */
+const providers = [
+  {
+    id: "openai-codex", brand: "codex", name: "OpenAI Codex", plan: "Pro",
+    template: "quota", status: "ok", fidelity: "exact", updated: "刚刚",
+    windows: [
+      { label: "5 小时", used: 82, resetIn: "54 分钟" },
+      { label: "7 天",   used: 47, resetIn: "4 天" },
+    ],
+  },
+  {
+    id: "kimi-code", brand: "kimi", name: "Kimi Code", membershipLevel: "LEVEL_ADVANCED",
+    template: "quota", status: "ok", fidelity: "exact", updated: "1 分钟前",
+    // ✅ 2026-08-02 真实账号实测：membership.level + region 均返回；totalQuota 该账号为空（条件层）；
+    // boosterWallet.monthlyUsed = monthlyChargeLimit = ¥100（本月 Extra Usage 已用满）→ 独立行展示
+    booster: { used: 100, limit: 100, currency: "CNY" },
+    windows: [
+      { label: "5 小时", used: 42, resetIn: "1 小时 41 分" },
+      { label: "本周",   used: 20, resetIn: "4 天" },
+      // 注：totalQuota 为空 → 不渲染第三层（前端按字段存在性驱动，不写死三层）
+    ],
+  },
+  {
+    id: "tencent-cp", brand: "tencent", name: "腾讯 Coding Plan", plan: "Pro",
+    template: "quota", status: "warn", fidelity: "exact", updated: "2 分钟前",
+    windows: [
+      { label: "5 小时", used: 100, resetIn: "已用尽" },
+      { label: "本周",   used: 68, resetIn: "3 天" },
+      { label: "本月",   used: 23, resetIn: "19 天" },
+    ],
+  },
+  {
+    id: "deepseek", brand: "deepseek", name: "DeepSeek", plan: null,
+    template: "balance", status: "ok", fidelity: "est", updated: "刚刚",
+    balance: { cur: "¥", num: "184.52" },
+    consum: [
+      { label: "今日", amt: "¥12.40", tok: "3.1M" },
+      { label: "本周", amt: "¥58.10", tok: "14.7M" },
+      { label: "本月", amt: "¥96.30", tok: "24.2M" },
+    ],
+  },
+  {
+    id: "moonshot", brand: "moonshot", name: "Moonshot", plan: null,
+    template: "balance", status: "ok", fidelity: "est", updated: "1 分钟前",
+    balance: { cur: "¥", num: "42.07" },
+    consum: [
+      { label: "今日", amt: "¥3.88", tok: "0.9M" },
+      { label: "本周", amt: "¥19.22", tok: "4.6M" },
+      { label: "本月", amt: "¥33.15", tok: "8.0M" },
+    ],
+  },
+  {
+    id: "tencent-tokenhub", brand: "tencent", name: "腾讯 TokenHub 按量", plan: null,
+    template: "balance", status: "ok", fidelity: "exact", updated: "刚刚",
+    balance: { cur: "¥", num: "256.00" },
+    consum: [
+      { label: "今日", amt: "¥9.60", tok: "2.4M" },
+      { label: "本周", amt: "¥41.30", tok: "10.3M" },
+      { label: "本月", amt: "¥72.80", tok: "18.2M" },
+    ],
+  },
+  {
+    id: "openai-platform", brand: "openai", name: "OpenAI Platform", plan: null,
+    template: "cost", status: "ok", fidelity: "exact", updated: "3 分钟前",
+    spend: { cur: "$", num: "312.48" },
+    periods: [
+      { label: "本周", amt: "$88.20" },
+      { label: "今日", amt: "$14.05" },
+    ],
+  },
+  {
+    id: "tencent-tokenplan", brand: "tencent", name: "腾讯 Token Plan", plan: "企业版",
+    template: "package", status: "ok", fidelity: "exact", updated: "5 分钟前",
+    pkg: { remain: "1.10M", total: "5.00M", unit: "tokens", ratio: 22, stop: false, note: "额度包剩余 22%，月底滚动" },
+  },
+];
+
+/* ============ 模板渲染 ============ */
+function statusClass(s){ return s === "warn" ? "warn" : s === "bad" ? "bad" : s === "stale" ? "stale" : ""; }
+/* 用量提醒 5 段：<50 浅绿 / 50-80 深绿 / 80-90 橙 / 90-100 红 / 用完(≥100 或耗尽) 深红 */
+function usageLevel(pct, exhausted){
+  if (exhausted || pct >= 100) return 5;
+  if (pct >= 90) return 4;
+  if (pct >= 80) return 3;
+  if (pct >= 50) return 2;
+  return 1;
+}
+function levelClass(lv){ return "lv" + lv; }
+function fidMeta(f){
+  return f === "exact" ? ["exact","实心点 · 官方接口"]
+       : f === "est"   ? ["est","空心点 · 余额差分推算"]
+       : ["partial","部分维度缺失"];
+}
+// Kimi Code：✅ 2026-08-02 真实账号实测 /usages 返回 user.membership.level（LEVEL_ADVANCED）
+// 与 user.region（REGION_CN），两个字段独立——佐证"统一 level + 区域屏蔽"理论（level 全球一致）。
+// slug→显示名映射表（单表，不按区域分支；LEVEL_ADVANCED/INTERMEDIATE 为实测锚点，其余为推断）：
+const KIMI_TIER = { LEVEL_BASIC: "Andante", LEVEL_INTERMEDIATE: "Moderato", LEVEL_ADVANCED: "Allegretto", LEVEL_PRO: "Allegro", LEVEL_PREMIUM: "Lv5" };
+function kimiPlanName(level){ return KIMI_TIER[level] || `Kimi 会员 L${level}`; }
+function planLabel(p){
+  if (p.brand === "kimi" && p.membershipLevel) return kimiPlanName(p.membershipLevel);
+  return p.plan || null;
+}
+function header(p, dotClass){
+  dotClass = dotClass || statusClass(p.status);
+  const plan = planLabel(p);
+  return `<div class="card-head">
+    <span class="brand-dot"></span>
+    <span class="card-name">${p.name}</span>
+    ${plan ? `<span class="plan-badge">${plan}</span>` : ``}
+    <span class="spacer"></span>
+    <span class="status-dot ${dotClass}" title="用量状态"></span>
+  </div>`;
+}
+function foot(p){
+  const [cls,label] = fidMeta(p.fidelity);
+  return `<div class="card-foot">
+    <span class="fid ${cls}"><span class="d"></span>${label}</span>
+    <span class="spacer"></span>
+    <span>更新 ${p.updated}</span>
+  </div>`;
+}
+
+// 模板 1：订阅额度型（Codex / Kimi Code / 腾讯 Coding Plan）
+function tplQuota(p){
+  const maxLv = Math.max(...p.windows.map(w => usageLevel(w.used, false)));
+  const rows = p.windows.map(w => {
+    const lv = usageLevel(w.used, false);
+    return `<div class="wrow">
+      <div class="wrow-top">
+        <span class="wrow-label">${w.label}</span>
+        <span class="wrow-reset">${w.resetIn} 后重置</span>
+        <span class="wrow-pct tnum">${w.used}%</span>
+      </div>
+      <div class="bar"><i class="${levelClass(lv)}" data-w="${w.used}"></i></div>
+    </div>`;
+  }).join("");
+  // boosterWallet（Kimi Extra Usage 货币钱包）：独立余额行，不混入百分比额度条
+  const booster = p.booster ? (() => {
+    const pct = Math.min(100, Math.round(p.booster.used / p.booster.limit * 100));
+    const lv = usageLevel(pct, false);
+    const sym = p.booster.currency === "CNY" ? "¥" : "$";
+    return `<div class="wrow" style="margin-top:2px">
+      <div class="wrow-top">
+        <span class="wrow-label">Extra Usage · 本月</span>
+        <span class="wrow-reset"></span>
+        <span class="wrow-pct tnum">${sym}${p.booster.used} / ${sym}${p.booster.limit}</span>
+      </div>
+      <div class="bar"><i class="${levelClass(lv)}" data-w="${pct}"></i></div>
+    </div>`;
+  })() : "";
+  return `<div class="card" data-brand="${p.brand}">${header(p, levelClass(maxLv))}${rows}${booster}${foot(p)}</div>`;
+}
+
+// 模板 2：余额消耗型（DeepSeek / Moonshot / 腾讯 TokenHub 按量）
+function tplBalance(p){
+  const est = p.fidelity === "est";
+  const maxAmt = Math.max(...p.consum.map(c => parseFloat(c.amt.replace(/[^\d.]/g,""))));
+  const rows = p.consum.map(c => {
+    const v = parseFloat(c.amt.replace(/[^\d.]/g,""));
+    const w = Math.max(6, Math.round(v / maxAmt * 100));
+    return `<div class="crow">
+      <span class="crow-label">${c.label}</span>
+      <span class="crow-mini"><i data-w="${w}"></i></span>
+      <span class="crow-amt tnum">${c.amt}</span>
+      <span class="crow-tok tnum">${c.tok}</span>
+    </div>`;
+  }).join("");
+  return `<div class="card" data-brand="${p.brand}">
+    ${header(p)}
+    <div class="hero">
+      <span class="hero-cur">${p.balance.cur}</span>
+      <span class="hero-num tnum">${p.balance.num}</span>
+      <span class="hero-tag ${est ? "est" : ""}">${est ? "消耗为推算" : "账户余额"}</span>
+    </div>
+    ${rows}${foot(p)}
+  </div>`;
+}
+
+// 模板 3：成本聚合型（OpenAI Platform 管理后台）
+function tplCost(p){
+  const rows = p.periods.map(c => `
+    <div class="crow">
+      <span class="crow-label">${c.label}</span>
+      <span class="crow-mini" style="flex:1"></span>
+      <span class="crow-amt tnum" style="min-width:90px">${c.amt}</span>
+      <span class="crow-tok" style="min-width:0"></span>
+    </div>`).join("");
+  return `<div class="card" data-brand="${p.brand}">
+    ${header(p)}
+    <div class="hero">
+      <span class="hero-cur">${p.spend.cur}</span>
+      <span class="hero-num tnum">${p.spend.num}</span>
+      <span class="hero-tag">本月花费</span>
+    </div>
+    ${rows}${foot(p)}
+  </div>`;
+}
+
+// 模板 4：套餐包型（腾讯 Token Plan）
+function tplPackage(p){
+  const usedPct = 100 - p.pkg.ratio;            // 进度条填充=已用（与额度型语义一致：满=危险）
+  const exhausted = p.pkg.ratio <= 0 || p.pkg.stop;
+  const lv = usageLevel(usedPct, exhausted);
+  const ratioColor = p.pkg.stop ? "var(--bad)" : "var(--text-2)";
+  return `<div class="card" data-brand="${p.brand}">
+    ${header(p, levelClass(lv))}
+    <div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px">
+      <span class="pkg-status ${p.pkg.stop ? "stop" : ""}">${p.pkg.stop ? "已暂停" : "生效中"}</span>
+      <span class="pkg-ratio" style="margin-left:auto;color:${ratioColor}">剩余 ${p.pkg.ratio}%</span>
+    </div>
+    <div class="bar" style="margin-bottom:10px"><i class="${levelClass(lv)}" data-w="${usedPct}"></i></div>
+    <div class="pkg-remain tnum">${p.pkg.remain} <span style="font-size:13px;font-weight:600;color:var(--text-3)">/ ${p.pkg.total} ${p.pkg.unit}</span></div>
+    <div class="pkg-note ${p.pkg.stop ? "stop" : ""}">${p.pkg.note}</div>
+    ${foot(p)}
+  </div>`;
+}
+
+function render(p){
+  switch(p.template){
+    case "quota":   return tplQuota(p);
+    case "balance": return tplBalance(p);
+    case "cost":    return tplCost(p);
+    case "package": return tplPackage(p);
+  }
+}
+
+/* 紧张度排序：用量最高者置顶（呼应托盘"最紧张额度"） */
+function urgency(p){
+  if (p.template === "quota") return Math.max(...p.windows.map(w=>w.used));
+  if (p.template === "balance" || p.template === "cost") return 50; // 占位
+  return 0;
+}
+
+const cardsEl = document.getElementById("cards");
+cardsEl.innerHTML = [...providers].sort((a,b)=>urgency(b)-urgency(a)).map(render).join("");
+
+/* 进度条入场动画 */
+requestAnimationFrame(()=>requestAnimationFrame(()=>{
+  document.querySelectorAll(".bar > i, .crow-mini > i").forEach(el=>{
+    const w = el.getAttribute("data-w"); if (w) el.style.width = w + "%";
+  });
+}));
+
+/* ============ 交互 ============ */
+const pop = document.getElementById("popover");
+const tray = document.getElementById("trayBtn");
+function openPop(){ pop.classList.add("open"); }
+function closePop(){ pop.classList.remove("open"); }
+tray.addEventListener("click", (e)=>{ e.stopPropagation(); pop.classList.contains("open") ? closePop() : openPop(); });
+document.addEventListener("click", (e)=>{ if(!pop.contains(e.target) && e.target!==tray) closePop(); });
+setTimeout(openPop, 350); // 载入即展示
+
+document.getElementById("themeBtn").addEventListener("click", ()=>{
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  document.getElementById("themeIcon").innerHTML = next === "dark"
+    ? '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>'
+    : '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+});
+document.getElementById("refreshBtn").addEventListener("click", (e)=>{
+  e.currentTarget.style.transform = "rotate(360deg)";
+  e.currentTarget.style.transition = "transform .6s ease";
+  setTimeout(()=>{ e.currentTarget.style.transform=""; e.currentTarget.style.transition=""; }, 600);
+});
+document.getElementById("addBtn").addEventListener("click", ()=> alert("「添加供应商」向导将作为独立窗口打开（不在主下拉内）—— 下一步实现 M6。"));
+</script>
+</body>
+</html>

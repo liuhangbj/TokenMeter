@@ -1,0 +1,33 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 5 段警示色渐变：左绿（低用量）→ 右红（高用量），呼应用量警示色 -->
+    <linearGradient id="gauge" x1="0%" y1="100%" x2="100%" y2="100%" gradientUnits="userSpaceOnUse"
+                    x2="384" x1="128">
+      <stop offset="0%"   stop-color="#7ed79b"/>
+      <stop offset="35%"  stop-color="#2ba471"/>
+      <stop offset="65%"  stop-color="#e37318"/>
+      <stop offset="100%" stop-color="#d54941"/>
+    </linearGradient>
+    <!-- 圆角矩形背景（深色，衬托表盘） -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"  stop-color="#2b2b2f"/>
+      <stop offset="100%" stop-color="#17171a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形底板（macOS App 图标风格） -->
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+
+  <!-- 表盘圆环（3/4 圆弧，缺口在底部） -->
+  <path d="M 128 360 A 150 150 0 1 1 384 360"
+        fill="none" stroke="url(#gauge)" stroke-width="34" stroke-linecap="round"/>
+
+  <!-- 指针（指向 65% 位置，橙区，暗示"用量进行中"） -->
+  <g transform="rotate(40 256 296)">
+    <line x1="256" y1="296" x2="256" y2="176"
+          stroke="#f2f2f2" stroke-width="20" stroke-linecap="round"/>
+  </g>
+  <!-- 指针轴心 -->
+  <circle cx="256" cy="296" r="26" fill="#f2f2f2"/>
+  <circle cx="256" cy="296" r="12" fill="#17171a"/>
+</svg>

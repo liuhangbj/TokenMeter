@@ -1,0 +1,37 @@
+[package]
+name = "tokenmeter"
+version = "0.1.0"
+description = "Cross-platform menu bar app for monitoring AI token/quota usage"
+authors = ["hangbits"]
+edition = "2021"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+keyring = "3"
+hmac = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+hkdf = "0.12"
+rand = "0.8"
+base64 = "0.22"
+hostname = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+async-trait = "0.1"
+log = "0.4"
+env_logger = "0.11"
+tauri-plugin-store = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-shell = "2"
+
+[features]
+# 默认不开启系统托盘原生菜单（我们手动构建）
+default = []

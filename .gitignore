@@ -1,0 +1,29 @@
+# ---- Rust / Tauri ----
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+*.pdb
+
+# ---- 前端 ----
+node_modules/
+dist/
+*.local
+
+# ---- 密钥 / 凭证（绝不上传）----
+credentials.json
+**/credentials.json
+*.key
+*.pem
+.env
+.env.*
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+
+# ---- 临时 ----
+*.tmp
+*.bak
