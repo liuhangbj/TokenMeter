@@ -110,6 +110,19 @@ async fn main() {
             tokio::spawn(async move {
                 core::scheduler::run(cache, ctl, notify).await;
             });
+
+            // 调试钩子：TOKENMETER_AUTO_PANEL=1 时启动即创建并显示面板，
+            // 并通知前端进入"添加供应商"视图（UI 抓屏/布局调试用）。
+            if std::env::var("TOKENMETER_AUTO_PANEL").as_deref() == Ok("1") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(w) = platform::tray::get_or_create_panel(&handle) {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                    let _ = handle.emit("debug-auto-panel", ());
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

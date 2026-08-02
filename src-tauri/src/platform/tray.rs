@@ -53,7 +53,7 @@ fn tray_icon() -> (Image<'static>, bool) {
 /// 获取（不存在则创建）popover 面板窗口。
 /// 纯菜单栏架构：启动时零窗口（tauri.conf.json windows: []），点托盘图标第一次才创建，
 /// 之后隐藏复用（不销毁，避免 Windows 上"最后窗口关闭 → 进程退出"类问题）。
-fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     if let Some(w) = app.get_webview_window("popover") {
         return Some(w);
     }

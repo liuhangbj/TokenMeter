@@ -11,6 +11,8 @@ public class WinEnum {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int m);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
 
@@ -24,7 +26,9 @@ if ($proc) {
     if ($p -eq $proc.Id) {
       $sb = New-Object System.Text.StringBuilder 512
       [WinEnum]::GetWindowText($h, $sb, 512) | Out-Null
-      $script:list += "hwnd=$h visible=$([WinEnum]::IsWindowVisible($h)) title='$($sb.ToString())'"
+      $r = New-Object WinEnum+RECT
+      [WinEnum]::GetWindowRect($h, [ref]$r) | Out-Null
+      $script:list += "hwnd=$h visible=$([WinEnum]::IsWindowVisible($h)) rect=($($r.Left),$($r.Top))-($($r.Right),$($r.Bottom)) title='$($sb.ToString())'"
     }
     return $true
   }, [IntPtr]::Zero) | Out-Null

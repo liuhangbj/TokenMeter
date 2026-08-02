@@ -96,7 +96,8 @@ export default function App() {
     }
   }, []);
 
-  // 自适应窗口尺寸：用 ResizeObserver 监听内容变化（含向导内部异步加载），
+  // 自适应窗口尺寸：监听内容节点（.popover-body / .wizard）而非滚动容器，
+  // 否则内容在 max-height 内增长时 ResizeObserver 不会触发（窗口高度卡在旧值）。
   // 宽度随视图变化（主面板 380 / 添加供应商向导约 506），高度随内容走（封顶 800）。
   const lastSize = useRef({ w: 0, h: 0 });
   useEffect(() => {
@@ -117,10 +118,21 @@ export default function App() {
     };
     const raf = requestAnimationFrame(apply);
     const ro = new ResizeObserver(() => requestAnimationFrame(apply));
-    ro.observe(el);
+    const targets: Element[] = [];
+    const body = document.querySelector(".popover-body");
+    const wizard = document.querySelector(".wizard");
+    if (body) targets.push(body);
+    if (wizard) targets.push(wizard);
+    targets.forEach((t) => ro.observe(t));
+    // 字体/异步渲染兜底：晚到的布局变化也能补一次测量
+    const t1 = window.setTimeout(apply, 500);
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(() => requestAnimationFrame(apply)).catch(() => {});
+    }
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      clearTimeout(t1);
     };
   }, [view]);
   useEffect(() => {
@@ -142,6 +154,14 @@ export default function App() {
       unlisten.then((f) => f());
     };
   }, [load]);
+
+  // 调试钩子：后端 TOKENMETER_AUTO_PANEL=1 启动时自动进入"添加供应商"视图
+  useEffect(() => {
+    const un = listen("debug-auto-panel", () => setView("add"));
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
 
   const onRefresh = () => {
     setSpinning(true);
@@ -194,7 +214,7 @@ export default function App() {
       {view === "add" ? (
         <AddProvider onDone={() => setView("home")} />
       ) : (
-        <>
+        <div className="popover-body">
           <div className="popover-head">
             <span className="popover-title">TokenMeter</span>
             <span className="spacer" />
@@ -273,7 +293,7 @@ export default function App() {
               + 添加供应商
             </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
