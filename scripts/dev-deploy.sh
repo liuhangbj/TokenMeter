@@ -61,6 +61,9 @@ TAURI_ARGS=(--bundles app)
 if [ "$PROFILE" = "debug" ]; then
   TAURI_ARGS+=(--debug)
 fi
+# 显式启用 custom-protocol：独立二进制必须内嵌前端资源，
+# 否则面板会去连 devUrl（localhost:1420）导致"无法访问此页面"。
+TAURI_ARGS+=(--features custom-protocol)
 # 本机没有签名私钥时跳过 updater 产物（app.tar.gz + .sig），
 # 否则 tauri CLI 会因为"有公钥无私钥"而中断打包。
 if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then

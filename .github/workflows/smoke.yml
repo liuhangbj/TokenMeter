@@ -38,7 +38,9 @@ jobs:
         run: npm run build
 
       - name: Build release binary
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+        # 必须启用 custom-protocol：否则 release exe 仍是 dev 模式，
+        # 面板会去连 localhost:1420 导致"无法访问此页面"。
+        run: cargo build --release --features custom-protocol --manifest-path src-tauri/Cargo.toml
 
       # 上传编译产物：本机没有 Windows 环境时，从这里取 exe 做真机部署/测试
       - name: Upload dev binary

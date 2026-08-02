@@ -35,5 +35,9 @@ tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
 
 [features]
+# 生产/独立二进制必需：启用后前端资源内嵌进 exe（custom protocol），
+# 否则即使 release 构建也会按 dev 模式去连 devUrl（localhost:1420），
+# 托盘面板会报"无法访问此页面 / localhost 拒绝连接"。
+custom-protocol = ["tauri/custom-protocol"]
 # 默认不开启系统托盘原生菜单（我们手动构建）
 default = []
