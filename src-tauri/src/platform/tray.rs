@@ -125,11 +125,15 @@ fn toggle_panel(
     // 避免"先弹初始尺寸、再 resize 重定位"的闪切。第二次点击兜底强制显示。
     if !PANEL_READY.load(AtomicOrdering::Relaxed) {
         if PANEL_PENDING.swap(true, AtomicOrdering::Relaxed) {
+            log::info!("toggle_panel: WebView 未就绪，二次点击兜底显示");
             position_and_show(app, tray_rect, cursor);
+        } else {
+            log::info!("toggle_panel: 等待 WebView 就绪后延迟显示");
         }
         return;
     }
 
+    log::info!("toggle_panel: 就绪，直接定位显示");
     position_and_show(app, tray_rect, cursor);
 }
 

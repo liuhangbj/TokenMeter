@@ -101,10 +101,22 @@ export default function App() {
   // 宽度随视图变化（主面板 380 / 添加供应商向导约 506），高度随内容走（封顶 800）。
   const lastSize = useRef({ w: 0, h: 0 });
   const pendingTimer = useRef<number | null>(null);
+  const stableTimer = useRef<number | null>(null);
   const readySent = useRef(false);
   useEffect(() => {
     const el = document.querySelector(".popover");
     if (!el) return;
+    // 尺寸连续稳定 450ms 后才通知后端显示，避免"先弹空状态/初始尺寸、
+    // 数据加载后再次 resize 重定位"造成的闪切。
+    const armStable = () => {
+      if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
+      stableTimer.current = window.setTimeout(() => {
+        if (!readySent.current) {
+          readySent.current = true;
+          invoke("panel_ready").catch(() => {});
+        }
+      }, 450);
+    };
     const apply = (force = false) => {
       let w = 380;
       if (view === "add") {
@@ -114,19 +126,18 @@ export default function App() {
         w = wizardW + 26;
       }
       const h = Math.ceil(el.scrollHeight);
+      const changed = w !== lastSize.current.w || h !== lastSize.current.h;
       // force 用于兜底重发：即使测量值没变，也再 set_size 一次，
       // 纠正 Windows WebView2 偶发未跟随窗口尺寸的竞态。
-      if (!force && w === lastSize.current.w && h === lastSize.current.h) return;
+      if (!force && !changed) return;
       lastSize.current = { w, h };
-      invoke("resize_popover", { width: w, height: h })
-        .then(() => {
-          // 首次测量完成：通知后端可以定位并显示了（延迟显示，避免闪切）
-          if (!readySent.current) {
-            readySent.current = true;
-            invoke("panel_ready").catch(() => {});
-          }
-        })
-        .catch(() => {});
+      // 尺寸真正变化 → 重置稳定计时器；未变化但还没启动过 → 也启动一次
+      if (changed) {
+        armStable();
+      } else if (stableTimer.current === null) {
+        armStable();
+      }
+      invoke("resize_popover", { width: w, height: h }).catch(() => {});
     };
     // 尾随防抖：内容频繁变化时合并为一次最终尺寸，减少 resize 竞态
     const schedule = () => {
@@ -153,6 +164,7 @@ export default function App() {
       if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      if (stableTimer.current !== null) window.clearTimeout(stableTimer.current);
     };
   }, [view]);
   useEffect(() => {

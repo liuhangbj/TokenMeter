@@ -70,24 +70,27 @@ pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), Str
         return Ok(());
     }
 
-    let size = tauri::LogicalSize::new(wpx, h);
-    w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())?;
-
-    // Windows：尺寸变化后立即按【工作区右下角】重新锚定。
-    // 否则窗口变大时保持左上角不动，右/下边会伸出去盖住任务栏或出屏
-    // （表现为"切到添加供应商后位置不对，再次弹出才正确"）。
+    // Windows：先按【目标尺寸】计算右下角锚点位置并移动，再 set_size——
+    // 顺序反过来会出现"窗口先伸出去、再被拉回来"的可见跳动。
     #[cfg(target_os = "windows")]
     {
-        if let (Ok(Some(m)), Ok(os)) = (w.current_monitor(), w.outer_size()) {
+        if let Ok(Some(m)) = w.current_monitor() {
             let wa = m.work_area(); // 物理坐标，已扣除任务栏
             let margin = 8.0_f64;
-            let x = (wa.position.x as f64 + wa.size.width as f64 - os.width as f64 - margin)
+            // 用目标尺寸（逻辑 wpx/h × scale）计算，确保移动后右下角仍在锚点
+            let scale = w.scale_factor().unwrap_or(1.0);
+            let target_w = wpx * scale;
+            let target_h = h * scale;
+            let x = (wa.position.x as f64 + wa.size.width as f64 - target_w - margin)
                 .max(wa.position.x as f64 + 8.0);
-            let y = (wa.position.y as f64 + wa.size.height as f64 - os.height as f64 - margin)
+            let y = (wa.position.y as f64 + wa.size.height as f64 - target_h - margin)
                 .max(wa.position.y as f64 + 8.0);
             let _ = w.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
         }
     }
+
+    let size = tauri::LogicalSize::new(wpx, h);
+    w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())?;
     Ok(())
 }
 
