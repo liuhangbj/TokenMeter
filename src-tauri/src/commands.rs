@@ -28,14 +28,16 @@ pub fn get_snapshots(cache: State<Snapshots>) -> Vec<ProviderSnapshot> {
 /// 列出「添加供应商」入口可见的 provider（含 auth_spec，驱动动态表单）。
 #[tauri::command]
 pub fn list_addable_providers() -> Vec<AddableProvider> {
-    providers::addable_registry()
+    let list = providers::addable_registry()
         .into_iter()
         .map(|p| AddableProvider {
             id: p.id().to_string(),
             display_name: p.display_name().to_string(),
             auth_spec: p.auth_spec(),
         })
-        .collect()
+        .collect::<Vec<_>>();
+    log::info!("list_addable_providers 返回 {} 个 provider", list.len());
+    list
 }
 
 /// 面板被打开：立即触发一次后台刷新，并返回当前快照（先返旧数据，后台刷新完成后前端再拉）。

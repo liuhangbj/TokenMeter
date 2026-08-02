@@ -24,9 +24,15 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    invoke<AddableProvider[]>("list_addable_providers").then(setProviders).catch(console.error);
+    invoke<AddableProvider[]>("list_addable_providers")
+      .then((list) => setProviders(list))
+      .catch((e) => {
+        console.error("list_addable_providers 失败", e);
+        setLoadError(String(e));
+      });
   }, []);
 
   const pick = (p: AddableProvider) => {
@@ -77,6 +83,10 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
     <div className="wizard">
       <div className="wizard-title">添加供应商</div>
       <div className="wizard-sub">选择要监控的平台</div>
+      {loadError && <div className="form-error">加载供应商列表失败：{loadError}</div>}
+      {!loadError && providers.length === 0 && (
+        <div className="empty">暂无可用供应商（加载中或列表为空）</div>
+      )}
       <div className="provider-grid">
         {providers.map((p) => (
           <button key={p.id} className="provider-cell" data-brand={brandOf(p.id)} onClick={() => pick(p)}>
