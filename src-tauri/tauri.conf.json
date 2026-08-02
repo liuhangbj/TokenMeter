@@ -35,7 +35,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxMjFGN0Q4RjBEQUM0QjMKUldTenhOcncyUGNoY1pCM3JzOEFVeTNIU2l6WUhaV2l1VXVhWE82NWdJem4vU2ZxM3ZHYURGbWsK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIzREM5QzgxNkREOTE5NTMKUldSVEdkbHRnWnpjSTdzZmcwOVBvOWRjQS81VTMveEpHUFhnWktHMkVTUGVYOW02UGk5ZzhoV3cK",
       "endpoints": [
         "https://github.com/liuhangbj/TokenMeter/releases/latest/download/latest.json"
       ],
