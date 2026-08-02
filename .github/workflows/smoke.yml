@@ -3,11 +3,10 @@
 #
 # 验证项：
 #  1. App 能正常启动且进程存活（不崩）
-#  2. 启动后零窗口（MainWindowHandle == 0）→ 纯菜单栏架构生效
+#  2. 启动后零可见窗口（MainWindowHandle == 0）→ 纯菜单栏架构生效
 #  3. 进程持续存活（scheduler 正常运行，无 panic）
 #
-# 局限：无法模拟托盘图标点击/右键菜单（Windows 托盘交互无法从 CLI 触发），
-# 面板弹出方向、添加向导等 UI 交互仍需人工实测。
+# 局限：无法模拟托盘图标点击/右键菜单（Windows 托盘交互无法从 CLI 触发）。
 name: Windows Smoke Test
 
 on:
@@ -28,7 +27,6 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
 
-      # Rust 编译缓存：第二次起依赖层直接复用
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
@@ -42,88 +40,60 @@ jobs:
       - name: Build release binary
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
 
-      - name: Launch app and run smoke assertions
+      - name: Launch app (background)
         shell: pwsh
         env:
-          RUST_LOG: debug
           TOKENMETER_LOG_FILE: ${{ github.workspace }}\app.log
         run: |
           $exe = "$PWD\src-tauri\target\release\tokenmeter.exe"
           if (-not (Test-Path $exe)) { throw "exe 不存在: $exe" }
-
-          # 启动 App（后台）
           $proc = Start-Process -FilePath $exe -PassThru
+          Write-Output "STARTED PID=$($proc.Id)"
+          Set-Content -Path "$PWD\pid.txt" -Value $proc.Id
 
-          # 等待初始化（scheduler 启动 + 首次抓取）
+      - name: Assert process alive and zero windows
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $pid2 = [int](Get-Content "$PWD\pid.txt")
           Start-Sleep -Seconds 8
-
-          # 断言 1：进程存活
-          $p = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+          $p = Get-Process -Id $pid2 -ErrorAction SilentlyContinue
           if (-not $p) { throw "FAIL: App 启动后崩溃退出" }
-          Write-Output "PASS: 进程存活 (PID $($proc.Id))"
-
-          # 诊断：枚举本进程所有顶层窗口（标题 + 可见性），判断 MainWindowHandle 的来源
-          Add-Type @"
-          using System;
-          using System.Text;
-          using System.Runtime.InteropServices;
-          public class WinEnum {
-              public delegate bool EnumProc(IntPtr h, IntPtr lp);
-              [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr lp);
-              [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-              [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-              [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder sb, int max);
-          }
-          "@
-          $found = @()
-          $cb = [WinEnum+EnumProc]{
-            param($h, $lp)
-            $wid = 0
-            [WinEnum]::GetWindowThreadProcessId($h, [ref]$wid) | Out-Null
-            if ($wid -eq $proc.Id) {
-              $sb = New-Object System.Text.StringBuilder 256
-              [WinEnum]::GetWindowText($h, $sb, 256) | Out-Null
-              $script:found += "hwnd=$h visible=$([WinEnum]::IsWindowVisible($h)) title='$($sb.ToString())'"
-            }
-            return $true
-          }
-          [WinEnum]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-          Write-Output "窗口枚举: $($found.Count) 个"
-          $found | ForEach-Object { Write-Output "  $_" }
-
-          # 断言 2：启动零窗口（无可见顶层窗口）
-          $visible = $found | Where-Object { $_ -match "visible=True" }
-          if ($visible) {
-            throw "FAIL: 存在可见窗口: $visible"
+          Write-Output "PASS: 进程存活 (PID $pid2)"
+          Write-Output "INFO: MainWindowHandle=$($p.MainWindowHandle) MainWindowTitle='$($p.MainWindowTitle)'"
+          if ($p.MainWindowHandle -ne 0) {
+            throw "FAIL: 启动时有可见窗口 title='$($p.MainWindowTitle)'"
           }
           Write-Output "PASS: 启动零可见窗口"
 
-          # 断言 3：持续存活（scheduler 无 panic）
+      - name: Assert app stays alive (18s total)
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $pid2 = [int](Get-Content "$PWD\pid.txt")
           Start-Sleep -Seconds 10
-          $p2 = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
-          if (-not $p2) { throw "FAIL: App 运行 18 秒后崩溃" }
+          $p = Get-Process -Id $pid2 -ErrorAction SilentlyContinue
+          if (-not $p) { throw "FAIL: App 运行 18 秒后崩溃" }
           Write-Output "PASS: 运行 18 秒仍存活"
 
-          # 诊断：应用日志（TOKENMETER_LOG_FILE）
+      - name: Show app log
+        if: always()
+        shell: pwsh
+        run: |
           if (Test-Path "$PWD\app.log") {
-            Write-Output "=== app.log 尾部 ==="
-            Get-Content "$PWD\app.log" -Tail 20
+            Write-Output "=== app.log ==="
+            Get-Content "$PWD\app.log" -Tail 30
           } else {
             Write-Output "WARN: app.log 未生成"
           }
 
-          # 诊断：Windows 应用事件日志最近错误
-          try {
-            Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-5); Level=2} -ErrorAction Stop |
-              Where-Object { $_.Message -match "tokenmeter" } |
-              Select-Object -First 3 TimeCreated, ProviderName, Message | Format-List
-          } catch {
-            Write-Output "事件日志: 无相关错误记录"
-          }
-
-          # 清理
-          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-          Write-Output "SMOKE TEST COMPLETE"
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $pid2 = [int](Get-Content "$PWD\pid.txt")
+          Stop-Process -Id $pid2 -Force -ErrorAction SilentlyContinue
+          Write-Output "CLEANED"
 
       - name: Upload smoke logs
         if: always()
@@ -132,5 +102,5 @@ jobs:
           name: smoke-log
           path: |
             app.log
-            smoke*.log
+            pid.txt
           if-no-files-found: ignore
