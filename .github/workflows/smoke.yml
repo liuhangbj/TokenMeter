@@ -1,0 +1,89 @@
+# Windows 冒烟测试（手动触发）：云端 Windows 机器自动验证
+# 用户没有 Windows 环境也不装虚拟机，用 GitHub Actions 的 windows runner 做真实测试。
+#
+# 验证项：
+#  1. App 能正常启动且进程存活（不崩）
+#  2. 启动后零窗口（MainWindowHandle == 0）→ 纯菜单栏架构生效
+#  3. 进程持续存活（scheduler 正常运行，无 panic）
+#
+# 局限：无法模拟托盘图标点击/右键菜单（Windows 托盘交互无法从 CLI 触发），
+# 面板弹出方向、添加向导等 UI 交互仍需人工实测。
+name: Windows Smoke Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build release binary
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Launch app and run smoke assertions
+        shell: pwsh
+        env:
+          RUST_LOG: debug
+        run: |
+          $exe = "$PWD\src-tauri\target\release\tokenmeter.exe"
+          if (-not (Test-Path $exe)) { throw "exe 不存在: $exe" }
+
+          # 启动 App（后台），日志重定向到文件
+          $log = "$PWD\smoke.log"
+          $proc = Start-Process -FilePath $exe -RedirectStandardError $log -RedirectStandardOutput "$PWD\smoke-out.log" -PassThru
+
+          # 等待初始化（scheduler 启动 + 首次抓取）
+          Start-Sleep -Seconds 8
+
+          # 断言 1：进程存活
+          $p = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+          if (-not $p) { throw "FAIL: App 启动后崩溃退出" }
+          Write-Output "PASS: 进程存活 (PID $($proc.Id))"
+
+          # 断言 2：启动零窗口（纯菜单栏核心）
+          if ($p.MainWindowHandle -ne 0) {
+            throw "FAIL: 启动时有窗口 MainWindowHandle=$($p.MainWindowHandle)"
+          }
+          Write-Output "PASS: 启动零窗口 (MainWindowHandle=0)"
+
+          # 断言 3：持续存活（scheduler 无 panic）
+          Start-Sleep -Seconds 10
+          $p2 = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+          if (-not $p2) { throw "FAIL: App 运行 18 秒后崩溃" }
+          Write-Output "PASS: 运行 18 秒仍存活"
+
+          # 断言 4：日志里有 scheduler 抓取痕迹（证明后台运行正常）
+          $logContent = Get-Content $log -Raw -ErrorAction SilentlyContinue
+          if ($logContent -match "抓取成功|fetch|scheduler|Scheduler") {
+            Write-Output "PASS: 日志包含 scheduler 活动"
+          } else {
+            Write-Output "WARN: 日志未见 scheduler 活动（可能未配置凭证，属正常）"
+          }
+
+          # 清理：结束测试进程
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Output "SMOKE TEST COMPLETE"
+
+      - name: Upload smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log
+          path: smoke*.log
+          if-no-files-found: ignore
