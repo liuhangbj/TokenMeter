@@ -8,6 +8,7 @@ using System.Text;
 public class WinEnum {
   public delegate bool CB(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] public static extern bool EnumWindows(CB cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, CB cb, IntPtr l);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int m);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
@@ -29,6 +30,12 @@ if ($proc) {
       $r = New-Object WinEnum+RECT
       [WinEnum]::GetWindowRect($h, [ref]$r) | Out-Null
       $script:list += "hwnd=$h visible=$([WinEnum]::IsWindowVisible($h)) rect=($($r.Left),$($r.Top))-($($r.Right),$($r.Bottom)) title='$($sb.ToString())'"
+      [WinEnum]::EnumChildWindows($h, { param($ch, $l2)
+        $cr = New-Object WinEnum+RECT
+        [WinEnum]::GetWindowRect($ch, [ref]$cr) | Out-Null
+        $script:list += "  child=$ch rect=($($cr.Left),$($cr.Top))-($($cr.Right),$($cr.Bottom)) w=$($cr.Right-$cr.Left) h=$($cr.Bottom-$cr.Top)"
+        return $true
+      }, [IntPtr]::Zero) | Out-Null
     }
     return $true
   }, [IntPtr]::Zero) | Out-Null

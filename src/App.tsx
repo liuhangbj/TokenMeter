@@ -100,10 +100,11 @@ export default function App() {
   // 否则内容在 max-height 内增长时 ResizeObserver 不会触发（窗口高度卡在旧值）。
   // 宽度随视图变化（主面板 380 / 添加供应商向导约 506），高度随内容走（封顶 800）。
   const lastSize = useRef({ w: 0, h: 0 });
+  const pendingTimer = useRef<number | null>(null);
   useEffect(() => {
     const el = document.querySelector(".popover");
     if (!el) return;
-    const apply = () => {
+    const apply = (force = false) => {
       let w = 380;
       if (view === "add") {
         const wizard = document.querySelector(".wizard");
@@ -112,27 +113,37 @@ export default function App() {
         w = wizardW + 26;
       }
       const h = Math.ceil(el.scrollHeight);
-      if (w === lastSize.current.w && h === lastSize.current.h) return;
+      // force 用于兜底重发：即使测量值没变，也再 set_size 一次，
+      // 纠正 Windows WebView2 偶发未跟随窗口尺寸的竞态。
+      if (!force && w === lastSize.current.w && h === lastSize.current.h) return;
       lastSize.current = { w, h };
       invoke("resize_popover", { width: w, height: h }).catch(() => {});
     };
-    const raf = requestAnimationFrame(apply);
-    const ro = new ResizeObserver(() => requestAnimationFrame(apply));
+    // 尾随防抖：内容频繁变化时合并为一次最终尺寸，减少 resize 竞态
+    const schedule = () => {
+      if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current);
+      pendingTimer.current = window.setTimeout(() => apply(), 120);
+    };
+    const raf = requestAnimationFrame(() => apply());
+    const ro = new ResizeObserver(schedule);
     const targets: Element[] = [];
     const body = document.querySelector(".popover-body");
     const wizard = document.querySelector(".wizard");
     if (body) targets.push(body);
     if (wizard) targets.push(wizard);
     targets.forEach((t) => ro.observe(t));
-    // 字体/异步渲染兜底：晚到的布局变化也能补一次测量
-    const t1 = window.setTimeout(apply, 500);
+    // 字体/异步渲染兜底 + 强制重发：晚到的布局变化和 WebView 未跟随都能纠正
+    const t1 = window.setTimeout(() => apply(true), 600);
+    const t2 = window.setTimeout(() => apply(true), 1200);
     if (document.fonts?.ready) {
-      document.fonts.ready.then(() => requestAnimationFrame(apply)).catch(() => {});
+      document.fonts.ready.then(() => schedule()).catch(() => {});
     }
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      clearTimeout(t1);
+      if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
     };
   }, [view]);
   useEffect(() => {

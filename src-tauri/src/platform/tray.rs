@@ -66,6 +66,9 @@ pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::Webvi
         .transparent(cfg!(target_os = "macos"))
         .always_on_top(true)
         .skip_taskbar(true)
+        // Windows：关闭原生阴影，避免窗口外层透明内边距（约 7px）造成
+        // "窗口比内容宽、右侧露黑边"；CSS 已有 box-shadow 提供视觉阴影。
+        .shadow(cfg!(target_os = "macos"))
         .visible(false) // 创建后由 toggle_panel 定位再显示
         .build()
         .map_err(|e| log::error!("创建面板窗口失败: {e}"))
