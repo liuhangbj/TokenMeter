@@ -27,7 +27,6 @@ use rand::RngCore;
 use serde_json::{json, Value};
 use sha2::Sha256;
 use hkdf::Hkdf;
-use std::io::Write;
 use std::path::PathBuf;
 
 const SERVICE: &str = "com.hangbits.tokenmeter";
@@ -70,6 +69,7 @@ pub(crate) fn write_private(path: &PathBuf, data: &[u8]) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
+        use std::io::Write;
         let mut f = std::fs::OpenOptions::new()
             .write(true)
             .create(true)

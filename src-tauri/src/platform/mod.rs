@@ -10,11 +10,11 @@
 pub mod tray;
 
 /// 平台相关的一次性启动配置。
-pub fn setup(app: &mut tauri::App) {
+pub fn setup(_app: &mut tauri::App) {
     // 纯菜单栏：运行时强制 Accessory 策略（不显示 Dock / Cmd+Tab），
     // 连 `tauri dev` 调试模式也生效；Info.plist 的 LSUIElement 只管打包后。
     #[cfg(target_os = "macos")]
-    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    _app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 }
 
 /// 用系统默认浏览器打开 URL。
