@@ -1,4 +1,5 @@
 // 供应商卡片 —— 按数据形态自适应渲染（额度型 / 余额型 / 套餐包）
+import { open } from "@tauri-apps/plugin-shell";
 import type { ProviderSnapshot, QuotaWindow } from "./types";
 import {
   usageLevel, levelClass, statusDotClass, fidMeta,
@@ -94,7 +95,18 @@ export function ProviderCard({ snap }: { snap: ProviderSnapshot }) {
         <span>{updatedAgo(snap.fetched_at)}</span>
         <span className="spacer" />
         {link && (
-          <a className="detail-link" href={link} target="_blank" rel="noreferrer">
+          <a
+            className="detail-link"
+            href={link}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => {
+              // 拦截默认行为：Tauri WebView 对 target=_blank 会新建空白 WebView 窗口
+              // （表现为"点链接闪切一次"），这里直接交给系统默认浏览器打开。
+              e.preventDefault();
+              open(link);
+            }}
+          >
             查看详情 ↗
           </a>
         )}
