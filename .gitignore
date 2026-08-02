@@ -27,3 +27,4 @@ Thumbs.db
 # ---- 临时 ----
 *.tmp
 *.bak
+release-local/
