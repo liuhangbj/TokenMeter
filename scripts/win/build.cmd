@@ -18,8 +18,8 @@ call npm ci || exit /b 1
 echo [2/3] 前端构建
 call npm run build || exit /b 1
 
-echo [3/3] cargo build --release --features custom-protocol
-call cargo build --release --features custom-protocol --manifest-path src-tauri\Cargo.toml || exit /b 1
+echo [3/3] cargo build --release --target x86_64-pc-windows-msvc --features custom-protocol
+call cargo build --release --target x86_64-pc-windows-msvc --features custom-protocol --manifest-path src-tauri\Cargo.toml || exit /b 1
 
 echo.
-echo BUILD_OK: src-tauri\target\release\tokenmeter.exe
+echo BUILD_OK: src-tauri\target\x86_64-pc-windows-msvc\release\tokenmeter.exe
