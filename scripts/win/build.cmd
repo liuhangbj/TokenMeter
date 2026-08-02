@@ -18,6 +18,9 @@ call npm ci || exit /b 1
 echo [2/3] 前端构建
 call npm run build || exit /b 1
 
+echo [2.5/3] 停止正在运行的旧实例（避免 exe 被占用无法覆盖）
+taskkill /IM tokenmeter.exe /F >nul 2>&1
+
 echo [3/3] cargo build --release --target x86_64-pc-windows-msvc --features custom-protocol
 call cargo build --release --target x86_64-pc-windows-msvc --features custom-protocol --manifest-path src-tauri\Cargo.toml || exit /b 1
 
