@@ -28,10 +28,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: ${{ matrix.target }}
+
+      # Rust 编译缓存：第二次起依赖层直接复用，构建时间大幅缩短
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
       - name: Install frontend dependencies
         run: npm ci
