@@ -52,22 +52,13 @@ jobs:
           releaseBody: "见下方各平台安装包。"
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: false  # latest.json 由 merge job 合并后统一上传
+          includeUpdaterJson: false  # latest.json 由 merge job 用 .sig 签名构造后统一上传
 
-      # 把本平台生成的 updater json 存为 artifact（多平台同名会覆盖，不能直接传 release）
-      - name: Save updater json artifact
-        run: |
-          find src-tauri/target/release/bundle -name "latest.json" -exec cp {} latest.json \; 2>/dev/null || true
-          ls -la latest.json 2>/dev/null && echo "updater json found" || echo "no updater json (可能未生成)"
-        shell: bash
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: updater-${{ matrix.target }}
-          path: latest.json
-          if-no-files-found: ignore
-
-  # 合并所有平台的 latest.json 成一份完整清单，上传到 Release
+  # 构造 latest.json 并上传到 Release：
+  # Tauri CLI 只生成 .sig 签名文件（不生成 latest.json），latest.json 是
+  # tauri-action 在 includeUpdaterJson: true 时的产物，且多平台会互相覆盖。
+  # 因此这里直接从 Release 拿各平台 .sig 签名 + asset URL，用 Python 组装一份
+  # 完整的 latest.json（darwin-aarch64 / windows-x86_64），这是最可靠的方式。
   merge-updater-json:
     needs: build
     runs-on: ubuntu-latest
@@ -78,42 +69,64 @@ jobs:
         id: tag
         run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v4
-        with:
-          path: parts
-          pattern: updater-*
-          merge-multiple: true
-
-      - name: Merge updater JSONs
-        run: |
-          python3 - <<'EOF'
-          import json, glob
-
-          files = sorted(glob.glob("parts/*.json"))
-          if not files:
-              print("no latest.json found, skip merge")
-              raise SystemExit(0)
-
-          merged = None
-          for f in files:
-              data = json.load(open(f))
-              if merged is None:
-                  merged = data
-              else:
-                  for k, v in data.get("platforms", {}).items():
-                      merged.setdefault("platforms", {})[k] = v
-
-          json.dump(merged, open("latest-merged.json", "w"), indent=2)
-          print("merged platforms:", list(merged.get("platforms", {}).keys()))
-          EOF
-
-      - name: Upload merged latest.json
-        if: hashFiles('latest-merged.json') != ''
+      - name: Download .sig files and build latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          gh release delete-asset "$TAG" latest.json --yes 2>/dev/null || true
-          gh release upload "$TAG" latest-merged.json --clobber
-          echo "=== Release 上的 latest.json ==="
+          mkdir -p sigs
+          # 下载全部 .sig 签名文件
+          gh release download "$TAG" --pattern "*.sig" --dir sigs 2>/dev/null || true
+          ls -la sigs/
+
+          python3 - <<'EOF'
+          import json, os, subprocess, datetime, re
+
+          tag = "${{ steps.tag.outputs.tag }}"
+          repo = "${{ github.repository }}"
+          assets = json.loads(subprocess.check_output(
+              ["gh", "release", "view", tag, "--repo", repo, "--json", "assets,createdAt"],
+              text=True))["assets"]
+          created = json.loads(subprocess.check_output(
+              ["gh", "release", "view", tag, "--repo", repo, "--json", "createdAt"], text=True))["createdAt"]
+
+          def asset(name):
+              for a in assets:
+                  if a["name"] == name:
+                      return a
+              return None
+
+          platforms = {}
+          # macOS Apple Silicon：Tauri CLI 只给 app.tar.gz 生成 .sig（DMG 无签名），
+          # 因此更新包指向 app.tar.gz（Tauri updater 原生支持该格式）
+          APP_GZ = "TokenMeter_aarch64.app.tar.gz"
+          appgz = asset(APP_GZ)
+          appgz_sig = asset(APP_GZ + ".sig")
+          if appgz and appgz_sig:
+              sig = open(f"sigs/{appgz_sig['name']}").read().strip()
+              platforms["darwin-aarch64"] = {"signature": sig, "url": appgz["browser_download_url"]}
+          # Windows x64：NSIS exe（Tauri v2 updater 优先 NSIS）+ 对应 .sig
+          exe = asset(f"TokenMeter_{tag[1:]}_x64-setup.exe")
+          exe_sig = asset(f"TokenMeter_{tag[1:]}_x64-setup.exe.sig")
+          if exe and exe_sig:
+              sig = open(f"sigs/{exe_sig['name']}").read().strip()
+              platforms["windows-x86_64"] = {"signature": sig, "url": exe["browser_download_url"]}
+
+          latest = {
+              "version": tag[1:],
+              "notes": "TokenMeter " + tag,
+              "pub_date": created,
+              "platforms": platforms,
+          }
+          json.dump(latest, open("latest.json", "w"), indent=2)
+          print("latest.json platforms:", list(platforms.keys()))
+          EOF
+
+      - name: Upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          gh release upload "$TAG" latest.json --clobber
+          echo "=== Release assets ==="
           gh release view "$TAG" --json assets --jq '.assets[].name' | grep latest
