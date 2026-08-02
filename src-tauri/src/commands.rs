@@ -50,14 +50,16 @@ pub fn on_panel_open(ctl: State<SchedulerCtl>) {
     ctl.trigger_refresh();
 }
 
-/// 自适应面板高度：前端量出内容实际高度后调用，把窗口缩放到该高度（封顶 800px）。
+/// 自适应面板尺寸：前端量出内容实际宽高后调用，把窗口缩放到该尺寸。
+/// 宽度封顶 560px（添加供应商向导约 506px），高度封顶 800px。
 #[tauri::command]
-pub fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
+pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
     let Some(w) = app.get_webview_window("popover") else {
         return Err("popover 窗口不存在".to_string());
     };
+    let wpx = width.clamp(320.0, 560.0);
     let h = height.clamp(120.0, 800.0);
-    let size = tauri::LogicalSize::new(380.0, h);
+    let size = tauri::LogicalSize::new(wpx, h);
     w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())
 }
 

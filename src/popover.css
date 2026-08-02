@@ -5,15 +5,22 @@
 html, body {
   margin: 0;
   padding: 0;
+  /* 窗口尺寸由后端按内容自适应；禁用 body 滚动，避免双滚动条 */
+  overflow: hidden;
+  height: 100%;
   background: transparent; /* 透明：让 popover 圆角外的区域透明（窗口才有圆角外形） */
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 .popover {
-  width: 380px;
+  /* 宽度跟随窗口（后端按内容自适应：主面板 380 / 添加供应商向导约 506） */
+  width: 100%;
+  max-width: 560px;
   /* 自适应高度：内容短就跟内容走，超过 max-height(800px) 才滚动 */
   max-height: 800px;
+  /* 只保留面板自身纵向滚动条；横向溢出交给窗口宽度自适应，不滚动 */
+  overflow-x: hidden;
   overflow-y: auto;
   background: var(--bg); /* 实色不透明：内容区不透出下层，圆角弧线外透明是预期 */
   border: 1px solid var(--border);

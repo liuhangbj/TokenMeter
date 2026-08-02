@@ -1,5 +1,5 @@
 // 托盘下拉面板主组件
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ProviderSnapshot } from "./types";
@@ -96,16 +96,33 @@ export default function App() {
     }
   }, []);
 
-  // 自适应窗口高度：内容渲染后量实际高度，resize 窗口（封顶 600，短则不滚动）
+  // 自适应窗口尺寸：用 ResizeObserver 监听内容变化（含向导内部异步加载），
+  // 宽度随视图变化（主面板 380 / 添加供应商向导约 506），高度随内容走（封顶 800）。
+  const lastSize = useRef({ w: 0, h: 0 });
   useEffect(() => {
     const el = document.querySelector(".popover");
     if (!el) return;
-    const id = requestAnimationFrame(() => {
+    const apply = () => {
+      let w = 380;
+      if (view === "add") {
+        const wizard = document.querySelector(".wizard");
+        const wizardW = wizard ? Math.ceil(wizard.getBoundingClientRect().width) : 480;
+        // popover 左右 padding 12*2 + border 1*2
+        w = wizardW + 26;
+      }
       const h = Math.ceil(el.scrollHeight);
-      invoke("resize_popover", { height: h }).catch(() => {});
-    });
-    return () => cancelAnimationFrame(id);
-  }, [snaps.length, showSettings, loading, editMode, customOrder, view]);
+      if (w === lastSize.current.w && h === lastSize.current.h) return;
+      lastSize.current = { w, h };
+      invoke("resize_popover", { width: w, height: h }).catch(() => {});
+    };
+    const raf = requestAnimationFrame(apply);
+    const ro = new ResizeObserver(() => requestAnimationFrame(apply));
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [view]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") {

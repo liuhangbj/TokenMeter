@@ -1,7 +1,8 @@
 /* 添加供应商向导样式 */
 
 .wizard {
-  width: 100%;
+  /* 向导保持舒适的设计宽度；面板窗口宽度会按它自适应（380 → 约 506px） */
+  width: 480px;
   min-height: auto;
   background: var(--bg);
   padding: 16px 16px 20px;
