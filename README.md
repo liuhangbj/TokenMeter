@@ -82,29 +82,35 @@ scripts/dev-deploy.sh --isolate     # 独立数据目录，不影响正式版凭
 - 本机没有签名私钥时自动跳过 updater 签名产物；正式发布仍走 GitHub Actions
 - 测试前请先退出正式版 TokenMeter（单实例锁会让第二个实例直接退出）
 
-### 架构
+### 架构（三层）
 
-```
+```text
+src/                         # UI 层：React + TypeScript（平台无关）
+├── App.tsx                  # 托盘面板（单窗口，含内嵌添加供应商向导）
+├── ProviderCard.tsx         # 平台卡片
+└── SettingsPanel.tsx        # 设置面板
+
 src-tauri/src/
-├── providers/       # 8 平台 provider（统一 Provider trait）
-├── scheduler.rs     # 定时抓取 + AuthExpired 自动刷新
-├── commands.rs      # Tauri commands（前端接口）
-├── oauth_device.rs  # Kimi 设备码流程
-├── oauth_codex.rs   # Codex PKCE 授权码流程
-├── settings.rs      # 设置持久化（系统标准配置目录）
-└── store/keychain.rs# AES-256-GCM 加密凭证存储
-
-src/                 # React 前端
-├── App.tsx          # 托盘面板
-├── AddProvider.tsx  # 添加供应商向导
-├── ProviderCard.tsx # 平台卡片
-└── SettingsPanel.tsx
+├── core/                    # Core 层：平台无关核心（不依赖 Tauri）
+│   ├── providers/           # 8 平台 provider（统一 Provider trait）
+│   ├── store.rs             # AES-256-GCM 加密凭证存储
+│   ├── scheduler.rs         # 定时/触发刷新（并发 + 失败可见）
+│   ├── scheduler_ctl.rs     # 刷新间隔广播 + 立即刷新信号
+│   ├── settings.rs          # 设置文件持久化
+│   └── oauth_codex.rs       # Codex PKCE / Kimi 设备码 OAuth
+├── platform/                # Platform Shell：平台差异集中地
+│   ├── tray.rs              # 托盘/菜单栏（macOS 顶部、Windows 任务栏）
+│   └── mod.rs               # macOS Accessory 策略、系统浏览器打开
+├── commands.rs              # IPC 薄层（前端 ↔ core/platform）
+└── main.rs                  # 组装根：插件、窗口事件、退出守卫
 ```
 
 ### 设计原则
 
+- **三层边界**：Core 不感知 Tauri；平台差异（托盘、焦点、Dock、浏览器）只允许出现在 `platform/`；UI 只通过 commands 与后端对话
+- **单窗口**：全 App 只有一个 WebView（托盘面板），添加供应商/设置都是面板内视图——规避 Windows WebView2 多窗口白屏/冻结
 - **零数据库**：不存历史、不做统计，实时拉取实时显示，用量曲线跳官方控制台看
-- **凭证不落明文**：AES-256-GCM 加密，密钥从设备特征派生
+- **凭证不落明文**：AES-256-GCM 加密，随机主密钥 0600 独立存放（无签名环境的现实折中）
 - **数据驱动 UI**：provider 声明 `auth_spec`，向导表单自动渲染，加新平台只需实现一个 trait
 
 ## License
