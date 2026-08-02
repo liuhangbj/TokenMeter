@@ -87,15 +87,20 @@ pub fn open_add_provider(app: AppHandle) -> Result<(), String> {
         let _ = w.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, "add-provider", WebviewUrl::App("index.html".into()))
+    let w = WebviewWindowBuilder::new(&app, "add-provider", WebviewUrl::App("index.html".into()))
         .title("添加供应商")
         .inner_size(480.0, 620.0)
         .resizable(false)
         // 纯菜单栏：向导窗口也不占任务栏（Windows），不显示 Dock（macOS 由 Accessory 策略保证）
         .skip_taskbar(true)
+        // Windows 上"可见状态直接创建 WebView"会白屏（页面不执行 JS），
+        // 与 popover 相同：先隐藏创建、初始化完成后再 show。
+        .visible(false)
         .center()
         .build()
         .map_err(|e| e.to_string())?;
+    let _ = w.show();
+    let _ = w.set_focus();
     Ok(())
 }
 
