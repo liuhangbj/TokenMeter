@@ -117,7 +117,6 @@ fn position_and_show(
         .outer_size()
         .map(|s| (s.width as f64, s.height as f64))
         .unwrap_or((PANEL_W as f64, 600.0));
-    let panel_w = win_size.0;
     let panel_h = win_size.1;
 
     #[cfg(target_os = "windows")]
@@ -138,6 +137,7 @@ fn position_and_show(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let panel_w = win_size.0;
         // tray_rect 的 position/size 是 Position/Size 枚举（逻辑或物理）。
         // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
         // 对 Logical 变体会用 scale 换算。这里取物理坐标。
