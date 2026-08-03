@@ -88,8 +88,8 @@ export function brandOf(providerId: string): string {
 /** 官方控制台链接（"查看详情↗"跳转） */
 export function consoleUrl(providerId: string): string | null {
   switch (providerId) {
-    // ChatGPT 的套餐额度/用量页（设置 → Usage）；chatgpt.com/codex 不是有效页面
-    case "codex": return "https://chatgpt.com/settings/usage";
+    // 官方 Codex CLI 的用量页地址（2026-08-03 从 ChatGPT.app 内确认）
+    case "codex": return "https://chatgpt.com/codex/settings/usage";
     case "openai_platform": return "https://platform.openai.com/usage";
     case "kimi_code": return "https://www.kimi.com/membership/subscription";
     // 2026-08-02 实测：Moonshot 控制台已并入 kimi 平台，moonshot 域名自动跳转对应区域
