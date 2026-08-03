@@ -3,9 +3,10 @@
 # TokenMeter 本机测试构建 + 部署脚本（macOS）
 #
 # 用法:
-#   scripts/dev-deploy.sh                # debug 构建 → 部署 → 直接启动
+#   scripts/dev-deploy.sh                # debug 构建 → 安装到 ~/Applications → 启动
 #   scripts/dev-deploy.sh --release      # release 构建
-#   scripts/dev-deploy.sh --install      # 构建并安装到 ~/Applications/TokenMeter Dev.app
+#   scripts/dev-deploy.sh --no-install   # 只构建+启动，不安装
+#   scripts/dev-deploy.sh --install-system # 安装到 /Applications（需要管理员密码）
 #   scripts/dev-deploy.sh --no-run       # 只构建，不启动
 #   scripts/dev-deploy.sh --isolate      # 使用独立数据目录（不影响正式版凭证/设置）
 #
@@ -15,14 +16,15 @@
 #   - 启动日志: /tmp/tokenmeter-dev.log
 #   - 退出 dev 实例: kill "$(cat /tmp/tokenmeter-dev.pid)"
 #   - 如果正式版 TokenMeter 正在运行，dev 实例会因单实例锁直接退出；
-#     测试前请先退出正式版（或只用 --no-run / --install）。
+#     测试前请先退出正式版（或只用 --no-run）。
 # ============================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="debug"
 RUN=1
-INSTALL=0
+INSTALL=1
+INSTALL_SYSTEM=0
 ISOLATE=0
 PID_FILE="/tmp/tokenmeter-dev.pid"
 LOG_FILE="/tmp/tokenmeter-dev.log"
@@ -39,6 +41,8 @@ for arg in "$@"; do
   case "$arg" in
     --release) PROFILE="release" ;;
     --install) INSTALL=1 ;;
+    --no-install) INSTALL=0 ;;
+    --install-system) INSTALL=1; INSTALL_SYSTEM=1 ;;
     --no-run)  RUN=0 ;;
     --isolate) ISOLATE=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -77,18 +81,30 @@ BIN="$ROOT/src-tauri/target/$PROFILE/tokenmeter"
 [ -d "$APP" ] || die "未找到 .app 产物: $APP"
 [ -x "$BIN" ] || die "未找到二进制产物: $BIN"
 
-# ---- 安装到 ~/Applications（可选）----
+# ---- 安装到 Applications（默认 ~/Applications；--install-system 到 /Applications）----
 if [ "$INSTALL" = "1" ]; then
-  DEST="$HOME/Applications/TokenMeter Dev.app"
-  say "==> 安装到 $DEST"
-  mkdir -p "$HOME/Applications"
-  # 先停掉已安装的 dev 实例（按完整路径匹配，不会误杀正式版）
-  pkill -f "$DEST/Contents/MacOS/tokenmeter" 2>/dev/null || true
-  if [ -d "$DEST" ]; then
-    # 旧包移入废纸篓（可恢复），避免 rm -rf
-    mv "$DEST" "$HOME/.Trash/TokenMeter Dev.app.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || rm -rf "$DEST"
+  if [ "$INSTALL_SYSTEM" = "1" ]; then
+    DEST="/Applications/TokenMeter Dev.app"
+    say "==> 安装到 $DEST（需要管理员密码）"
+    # 先停掉已安装的 dev 实例（按完整路径匹配，不会误杀正式版）
+    pkill -f "$DEST/Contents/MacOS/tokenmeter" 2>/dev/null || true
+    if [ -d "$DEST" ]; then
+      # 旧包移入废纸篓（可恢复），避免 rm -rf
+      sudo mv "$DEST" "$HOME/.Trash/TokenMeter Dev.app.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || sudo rm -rf "$DEST"
+    fi
+    sudo ditto "$APP" "$DEST"
+  else
+    DEST="$HOME/Applications/TokenMeter Dev.app"
+    say "==> 安装到 $DEST"
+    mkdir -p "$HOME/Applications"
+    # 先停掉已安装的 dev 实例（按完整路径匹配，不会误杀正式版）
+    pkill -f "$DEST/Contents/MacOS/tokenmeter" 2>/dev/null || true
+    if [ -d "$DEST" ]; then
+      # 旧包移入废纸篓（可恢复），避免 rm -rf
+      mv "$DEST" "$HOME/.Trash/TokenMeter Dev.app.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || rm -rf "$DEST"
+    fi
+    ditto "$APP" "$DEST"
   fi
-  ditto "$APP" "$DEST"
   BIN="$DEST/Contents/MacOS/tokenmeter"
 fi
 
