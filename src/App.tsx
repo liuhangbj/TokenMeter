@@ -1,5 +1,5 @@
 // 托盘下拉面板主组件
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ProviderSnapshot } from "./types";
@@ -96,50 +96,6 @@ export default function App() {
     }
   }, []);
 
-  // 窗口高度自适应：宽度已锁定（后端 PANEL_W=506），这里只量高度。
-  // 监听内容节点（.popover-body / .wizard）而非滚动容器，
-  // 否则内容在 max-height 内增长时 ResizeObserver 不会触发（高度卡在旧值）。
-  const lastH = useRef(0);
-  const pendingTimer = useRef<number | null>(null);
-  useEffect(() => {
-    const el = document.querySelector(".popover");
-    if (!el) return;
-    const apply = (force = false) => {
-      const h = Math.ceil(el.scrollHeight);
-      const changed = h !== lastH.current;
-      // force 用于兜底重发：即使测量值没变，也再 set_size 一次，
-      // 纠正 Windows WebView2 偶发未跟随窗口尺寸的竞态。
-      if (!force && !changed) return;
-      lastH.current = h;
-      invoke("resize_popover", { height: h }).catch(() => {});
-    };
-    // 尾随防抖：内容频繁变化时合并为一次最终尺寸，减少 resize 竞态
-    const schedule = () => {
-      if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current);
-      pendingTimer.current = window.setTimeout(() => apply(), 120);
-    };
-    const raf = requestAnimationFrame(() => apply());
-    const ro = new ResizeObserver(schedule);
-    const targets: Element[] = [];
-    const body = document.querySelector(".popover-body");
-    const wizard = document.querySelector(".wizard");
-    if (body) targets.push(body);
-    if (wizard) targets.push(wizard);
-    targets.forEach((t) => ro.observe(t));
-    // 字体/异步渲染兜底 + 强制重发：晚到的布局变化和 WebView 未跟随都能纠正
-    const t1 = window.setTimeout(() => apply(true), 600);
-    const t2 = window.setTimeout(() => apply(true), 1200);
-    if (document.fonts?.ready) {
-      document.fonts.ready.then(() => schedule()).catch(() => {});
-    }
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      if (pendingTimer.current !== null) window.clearTimeout(pendingTimer.current);
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-    };
-  }, [view]);
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") {

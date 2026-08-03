@@ -28,6 +28,9 @@ const MENUBAR_SIZE: u32 = 64;
 /// 面板固定宽度（锁定，不随视图切换变化）：
 /// 480px 向导 + 面板 padding 12*2 + border 1*2 = 506
 pub(crate) const PANEL_W: i32 = 506;
+/// 面板固定高度（锁定）：容纳添加供应商向导/表单，内容超高时面板内滚动。
+/// 高度锁定后窗口位置永不改变，彻底消除"顶边随高度变化上下跳"的重定位。
+pub(crate) const PANEL_H: i32 = 560;
 /// 托盘单击防抖间隔（毫秒）：双击的第二击在此窗口内被忽略
 const CLICK_DEBOUNCE_MS: u64 = 300;
 /// 上次托盘点击的毫秒时间戳（双击防抖用）
@@ -61,7 +64,7 @@ pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::Webvi
     }
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("TokenMeter")
-        .inner_size(PANEL_W as f64, 600.0)
+        .inner_size(PANEL_W as f64, PANEL_H as f64)
         .resizable(false)
         .decorations(false)
         // macOS：透明窗口 + 圆角外透明；Windows：透明不可靠且实色面板不需要
@@ -112,12 +115,8 @@ fn position_and_show(
         return;
     };
 
-    // 面板实际尺寸
-    let win_size = window
-        .outer_size()
-        .map(|s| (s.width as f64, s.height as f64))
-        .unwrap_or((PANEL_W as f64, 600.0));
-    let panel_h = win_size.1;
+    // 面板尺寸固定（锁定），定位计算直接使用常量
+    let panel_h = PANEL_H as f64;
 
     #[cfg(target_os = "windows")]
     {
@@ -139,7 +138,7 @@ fn position_and_show(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let panel_w = win_size.0;
+        let panel_w = PANEL_W as f64;
         // tray_rect 的 position/size 是 Position/Size 枚举（逻辑或物理）。
         // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
         // 对 Logical 变体会用 scale 换算。这里取物理坐标。

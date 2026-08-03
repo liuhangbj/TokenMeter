@@ -12,7 +12,7 @@ use crate::core::settings::{self, Settings};
 use crate::core::store;
 use serde::Serialize;
 use std::collections::HashMap;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt as _;
 
 /// 一个可添加供应商的视图（驱动添加向导 UI）
@@ -48,48 +48,6 @@ pub fn list_addable_providers() -> Vec<AddableProvider> {
 #[tauri::command]
 pub fn on_panel_open(ctl: State<SchedulerCtl>) {
     ctl.trigger_refresh();
-}
-
-/// 面板高度自适应：宽度锁定（PANEL_W），只调整高度（封顶 800px，超出由 CSS 滚动）。
-/// 高度未变化时直接跳过，不产生任何重定位。
-#[tauri::command]
-pub fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
-    let Some(w) = app.get_webview_window("popover") else {
-        return Err("popover 窗口不存在".to_string());
-    };
-    let h = height.clamp(120.0, 800.0);
-
-    // 高度未变化时直接跳过：避免"显示后又重定位"造成的闪切
-    let scale = w.scale_factor().unwrap_or(1.0);
-    let cur_h = w
-        .inner_size()
-        .map(|s| s.height as f64 / scale)
-        .unwrap_or(0.0);
-    if (cur_h - h).abs() <= 2.0 {
-        return Ok(());
-    }
-
-    // Windows：宽度锁定 → x 恒定；只按【目标高度】更新 y（底部边缘贴任务栏不动），
-    // 再 set_size。顺序不能反，否则会出现"窗口先伸出去、再被拉回来"的可见跳动。
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(Some(m)) = w.current_monitor() {
-            let wa = m.work_area(); // 物理坐标，已扣除任务栏
-            let margin = 8.0_f64;
-            let scale = w.scale_factor().unwrap_or(1.0);
-            let x = (wa.position.x as f64 + wa.size.width as f64
-                - crate::platform::tray::PANEL_W as f64 * scale
-                - margin)
-                .max(wa.position.x as f64 + 8.0);
-            let y = (wa.position.y as f64 + wa.size.height as f64 - h * scale - margin)
-                .max(wa.position.y as f64 + 8.0);
-            let _ = w.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
-        }
-    }
-
-    let size = tauri::LogicalSize::new(crate::platform::tray::PANEL_W as f64, h);
-    w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 /// 读取设置（core 层文件存储）。

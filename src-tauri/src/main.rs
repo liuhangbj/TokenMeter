@@ -83,7 +83,6 @@ async fn main() {
             commands::kimi_device_poll,
             commands::codex_device_start,
             commands::codex_device_poll,
-            commands::resize_popover,
             commands::remove_provider,
             commands::has_configured_providers,
             commands::quit_app,

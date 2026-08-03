@@ -17,8 +17,8 @@ html, body {
   /* 宽度跟随窗口（后端按内容自适应：主面板 380 / 添加供应商向导约 506） */
   width: 100%;
   max-width: 560px;
-  /* 自适应高度：内容短就跟内容走，超过 max-height(800px) 才滚动 */
-  max-height: 800px;
+  /* 窗口宽高锁定（后端 PANEL_W=506 / PANEL_H=560）：内容超高时面板内滚动 */
+  max-height: 560px;
   /* 只保留面板自身纵向滚动条；横向溢出交给窗口宽度自适应，不滚动 */
   overflow-x: hidden;
   overflow-y: auto;
