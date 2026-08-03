@@ -115,9 +115,6 @@ fn position_and_show(
         return;
     };
 
-    // 面板尺寸固定（锁定），定位计算直接使用常量
-    let panel_h = PANEL_H as f64;
-
     #[cfg(target_os = "windows")]
     {
         // 用点击光标位置反查托盘所在显示器（比 tray_rect 可靠）
@@ -130,7 +127,7 @@ fn position_and_show(
             let scale = m.scale_factor();
             let x = (wa.position.x as f64 + wa.size.width as f64 - PANEL_W as f64 * scale - margin)
                 .max(wa.position.x as f64 + 8.0);
-            let y = (wa.position.y as f64 + wa.size.height as f64 - panel_h - margin)
+            let y = (wa.position.y as f64 + wa.size.height as f64 - PANEL_H as f64 * scale - margin)
                 .max(wa.position.y as f64 + 8.0);
             let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
         }
@@ -139,46 +136,24 @@ fn position_and_show(
     #[cfg(not(target_os = "windows"))]
     {
         let panel_w = PANEL_W as f64;
-        // tray_rect 的 position/size 是 Position/Size 枚举（逻辑或物理）。
-        // tray-icon 底层给的是物理像素；对 Physical 变体 to_physical 是 identity，
-        // 对 Logical 变体会用 scale 换算。这里取物理坐标。
-        let icon_x = _tray_rect.position.to_physical::<f64>(1.0).x;
-        let icon_y = _tray_rect.position.to_physical::<f64>(1.0).y;
-        let icon_w = _tray_rect.size.to_physical::<u32>(1.0).width as f64;
-        let icon_h = _tray_rect.size.to_physical::<u32>(1.0).height as f64;
+        let panel_h = PANEL_H as f64;
 
-        // 用托盘坐标反查它所在的显示器（物理坐标）
-        let monitor = app
-            .monitor_from_point(icon_x, icon_y)
-            .ok()
-            .flatten();
+        // macOS：菜单栏在顶部，点击托盘时的光标位置就是图标位置。
+        // 直接以点击光标定位（tray_rect 在部分系统上为 0/不准）：
+        // 水平以光标为中心，垂直落在菜单栏下方约 10px。
+        let cx = _cursor.x;
+        let cy = _cursor.y;
+        let monitor = app.monitor_from_point(cx, cy).ok().flatten();
 
-        // 水平：居中于图标
-        let mut x = icon_x + (icon_w / 2.0) - (panel_w / 2.0);
-
-        // 垂直：图标在屏幕上半 → 向下弹；下半 → 向上弹
-        let mut y = icon_y + icon_h; // 默认向下
+        let mut x = cx - panel_w / 2.0;
+        let mut y = cy + 10.0;
         if let Some(m) = monitor {
-            let spos = m.position(); // 物理
-            let ssize = m.size();    // 物理
-            let screen_top = spos.y as f64;
-            let screen_h = ssize.height as f64;
-            let icon_center_y = icon_y + icon_h / 2.0;
-
-            if icon_center_y > screen_top + screen_h / 2.0 {
-                y = icon_y - panel_h; // 下半屏 → 向上弹
-            } else {
-                y = icon_y + icon_h;  // 上半屏 → 向下弹
-            }
-
-            // 水平防越界（贴屏边缘收敛）
-            let max_x = spos.x as f64 + ssize.width as f64 - panel_w - 8.0;
-            let min_x = spos.x as f64 + 8.0;
+            let wa = m.work_area(); // 物理坐标，已扣除菜单栏/Dock
+            let min_x = wa.position.x as f64 + 8.0;
+            let max_x = wa.position.x as f64 + wa.size.width as f64 - panel_w - 8.0;
             x = x.clamp(min_x, max_x.max(min_x));
-
-            // 垂直防越界
-            let max_y = screen_top + screen_h - panel_h - 8.0;
-            let min_y = screen_top + 8.0;
+            let min_y = wa.position.y as f64 + 8.0;
+            let max_y = wa.position.y as f64 + wa.size.height as f64 - panel_h - 8.0;
             y = y.clamp(min_y, max_y.max(min_y));
         }
 
