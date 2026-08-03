@@ -82,14 +82,14 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           mkdir -p sigs
           # 下载全部 .sig 签名文件（assets 上传可能有秒级延迟，重试等待出现）
-          for i in 1 2 3 4 5 6; do
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
             gh release download "$TAG" --pattern "*.sig" --dir sigs 2>&1 || true
             if [ -n "$(ls sigs/ 2>/dev/null)" ]; then
               echo "下载成功（第 $i 次尝试）"
               break
             fi
-            echo "assets 未就绪，5 秒后重试（$i/6）"
-            sleep 5
+            echo "assets 未就绪，10 秒后重试（$i/12）"
+            sleep 10
           done
           ls -la sigs/
           if [ -z "$(ls sigs/ 2>/dev/null)" ]; then
