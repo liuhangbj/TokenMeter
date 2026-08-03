@@ -126,8 +126,10 @@ fn position_and_show(
         if let Some(m) = monitor {
             let wa = m.work_area(); // 物理坐标，已扣除任务栏
             let margin = 8.0_f64;
-            // 右下角锚定：宽度固定 → x 恒定；y 只随当前高度变化，底部边缘贴任务栏
-            let x = (wa.position.x as f64 + wa.size.width as f64 - PANEL_W as f64 - margin)
+            // 右下角锚定：宽度固定 → x 恒定；y 只随当前高度变化，底部边缘贴任务栏。
+            // 注意：work_area 是物理坐标，PANEL_W 是逻辑宽度，必须乘显示器缩放。
+            let scale = m.scale_factor();
+            let x = (wa.position.x as f64 + wa.size.width as f64 - PANEL_W as f64 * scale - margin)
                 .max(wa.position.x as f64 + 8.0);
             let y = (wa.position.y as f64 + wa.size.height as f64 - panel_h - margin)
                 .max(wa.position.y as f64 + 8.0);
