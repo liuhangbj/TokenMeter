@@ -18,6 +18,7 @@ pub fn setup(_app: &mut tauri::App) {
 }
 
 /// 用系统默认浏览器打开 URL。
+#[allow(dead_code)] // 保留给未来的平台侧打开链接场景（当前由前端 plugin-shell 打开）
 pub fn open_browser(url: &str) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     let (cmd, args) = ("open", vec![url]);

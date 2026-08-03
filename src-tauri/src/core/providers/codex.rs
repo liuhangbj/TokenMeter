@@ -147,7 +147,8 @@ impl Provider for CodexProvider {
     }
     fn auth_spec(&self) -> AuthSpec {
         AuthSpec::OAuth {
-            authorize_url: "https://auth.openai.com/oauth/authorize",
+            // 新版设备码授权页（旧 authorize 页已废弃）
+            authorize_url: "https://auth.openai.com/codex/device",
             token_url: TOKEN_URL,
             client_id: CLIENT_ID,
             scopes: &["codex"],

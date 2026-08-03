@@ -1,7 +1,6 @@
 // 添加供应商向导：网格选择 → 动态表单（API Key）/ OAuth 授权 / 本机导入
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-shell";
 import type { AddableProvider, AuthField } from "./types";
 import { brandOf } from "./utils";
@@ -213,23 +212,24 @@ function OAuthFlow({
     }
   };
 
-  // Codex PKCE 浏览器授权：command 立即返回，授权完成走 codex-oauth-done 事件
+  // Codex 设备码授权（官方新版流程）：与 Kimi 同款，先拿设备码再轮询
   const startCodex = async () => {
-    setStatus({ kind: "working", note: "已在浏览器打开登录页，完成授权后此窗自动继续…" });
-    const unlisten = await listen<{ ok: boolean; error?: string }>("codex-oauth-done", (e) => {
-      unlisten();
-      if (e.payload.ok) {
-        setStatus({ kind: "success" });
-        setTimeout(onDone, 800);
-      } else {
-        setStatus({ kind: "error", msg: e.payload.error ?? "授权失败" });
-      }
-    });
+    setStatus({ kind: "working", note: "请求授权码…" });
     try {
-      await invoke("codex_oauth_start"); // 立即返回，后台跑授权流程
-    } catch (err) {
-      unlisten();
-      setStatus({ kind: "error", msg: String(err) });
+      const start = await invoke<{ user_code: string; verify_url: string; device_auth_id: string; interval_secs: number }>(
+        "codex_device_start"
+      );
+      setStatus({ kind: "device", code: start.user_code });
+      await open(start.verify_url);
+      await invoke("codex_device_poll", {
+        deviceAuthId: start.device_auth_id,
+        userCode: start.user_code,
+        intervalSecs: start.interval_secs,
+      });
+      setStatus({ kind: "success" });
+      setTimeout(onDone, 800);
+    } catch (e) {
+      setStatus({ kind: "error", msg: String(e) });
     }
   };
 

@@ -195,42 +195,26 @@ pub async fn kimi_device_poll(
     Ok(())
 }
 
-/// Codex PKCE 浏览器授权：后台跑完整流程（开浏览器→接回调→换 token→存凭证），
-/// command 立即返回，授权完成后 emit "codex-oauth-done" 事件通知前端。
+/// Codex 设备码授权：第一步，请求设备码（返回 user_code + verify_url 给前端展示）。
 #[tauri::command]
-pub fn codex_oauth_start(app: AppHandle, ctl: State<SchedulerCtl>) -> Result<(), String> {
-    let ctl = ctl.inner().clone();
-    let app2 = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let result = oauth_codex::run_flow(|url| async move {
-            let _ = crate::platform::open_browser(&url);
-        })
-        .await;
+pub async fn codex_device_start() -> Result<oauth_codex::CodexDeviceStart, String> {
+    oauth_codex::start().await.map_err(|e| e.to_string())
+}
 
-        match result {
-            Ok(data) => {
-                let cred = Credential { data };
-                match store::save_credential("codex", &cred) {
-                    Ok(_) => {
-                        ctl.trigger_refresh();
-                        let _ = app2.emit("codex-oauth-done", serde_json::json!({"ok": true}));
-                    }
-                    Err(e) => {
-                        let _ = app2.emit(
-                            "codex-oauth-done",
-                            serde_json::json!({"ok": false, "error": e.to_string()}),
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                let _ = app2.emit(
-                    "codex-oauth-done",
-                    serde_json::json!({"ok": false, "error": e.to_string()}),
-                );
-            }
-        }
-    });
+/// Codex 设备码授权：第二步，轮询直到授权完成，存凭证并刷新。
+#[tauri::command]
+pub async fn codex_device_poll(
+    ctl: State<'_, SchedulerCtl>,
+    device_auth_id: String,
+    user_code: String,
+    interval_secs: u64,
+) -> Result<(), String> {
+    let data = oauth_codex::poll_until_authorized(&device_auth_id, &user_code, interval_secs)
+        .await
+        .map_err(|e| e.to_string())?;
+    let cred = Credential { data };
+    store::save_credential("codex", &cred).map_err(|e| e.to_string())?;
+    ctl.trigger_refresh();
     Ok(())
 }
 

@@ -1,64 +1,186 @@
-//! Codex OAuth 2.0 + PKCE 授权码流程（浏览器授权）。
+//! OpenAI Codex 设备码授权（2026-08-03 按官方 openai/codex 源码逆向）。
 //!
-//! 流程（参数经多来源交叉验证 + 官方 oauth.rs 实现核对）：
-//!   1. 本地起 1455 端口临时 HTTP 服务器（OpenAI 注册的固定回调端口）
-//!   2. 生成 PKCE code_verifier + code_challenge(S256) + state(CSRF)
-//!   3. 构造授权 URL 并打开浏览器
-//!   4. 用户登录后浏览器重定向回 localhost:1455/auth/callback?code=...&state=...
-//!   5. 校验 state，用 code + code_verifier 换 token
-//!   6. 从 id_token (JWT) 解出 chatgpt_account_id
-//!   7. 存凭证（access_token / refresh_token / account_id）
-//! 回调端口固定 1455（Codex CLI 同款，OpenAI 已注册）。
+//! 新版 Codex CLI 已弃用旧的浏览器 OAuth authorize 流程，改为设备码：
+//!   1. `POST {issuer}/api/accounts/deviceauth/usercode` 请求设备码
+//!      （关键请求头 `originator: codex_cli_rs`，缺了会被 Cloudflare 拦截）
+//!   2. 打开 `{issuer}/codex/device` 让用户输入 user_code 完成授权
+//!   3. 轮询 `POST {issuer}/api/accounts/deviceauth/token`（403/404 表示未完成）
+//!   4. 用返回的 authorization_code + code_verifier 在 `{issuer}/oauth/token` 换 token
+//! 端点/字段来源：github.com/openai/codex codex-rs/login/src/device_code_auth.rs
 
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use rand::RngCore;
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::json;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use std::time::{Duration, Instant};
 
+const ISSUER: &str = "https://auth.openai.com";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
-const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-const REDIRECT_PORT: u16 = 1455;
-const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
-const SCOPE: &str = "openid profile email offline_access";
+const ORIGINATOR: &str = "codex_cli_rs";
+/// 用户完成授权的页面（输入 user_code）
+pub const VERIFY_URL: &str = "https://auth.openai.com/codex/device";
+/// 轮询最长等待时间（官方 15 分钟）
+const POLL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-/// 生成 PKCE code_verifier（86 字符 URL-safe 随机串）。
-fn gen_verifier() -> String {
-    let mut bytes = [0u8; 64];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
+/// 设备码第一步返回（给前端展示 user_code + 打开 verify_url）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CodexDeviceStart {
+    pub user_code: String,
+    pub verify_url: String,
+    pub device_auth_id: String,
+    pub interval_secs: u64,
 }
 
-/// code_challenge = base64url-no-pad(SHA256(verifier))。
-fn challenge_of(verifier: &str) -> String {
-    let digest = Sha256::digest(verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(digest)
+#[derive(Debug, Deserialize)]
+struct UserCodeResp {
+    device_auth_id: String,
+    #[serde(alias = "user_code", alias = "usercode")]
+    user_code: String,
+    #[serde(default)]
+    interval: IntervalStr,
 }
 
-/// 构造授权 URL。
-fn authorize_url(challenge: &str, state: &str) -> String {
-    format!(
-        "{AUTH}?response_type=code&client_id={cid}&redirect_uri={ru}&scope={sc}\
-         &code_challenge={cc}&code_challenge_method=S256&state={st}\
-         &id_token_add_organizations=true&codex_cli_simplified_flow=true&originator=codex_cli_rs",
-        AUTH = AUTHORIZE_URL,
-        cid = CLIENT_ID,
-        ru = urlencoding(REDIRECT_URI),
-        sc = urlencoding(SCOPE),
-        cc = challenge,
-        st = state,
-    )
+/// 兼容数字 / 数字字符串（实测 interval 是字符串 "5"）。
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum IntervalStr {
+    N(u64),
+    S(String),
 }
 
-/// 极简 URL 编码（仅需处理 : / 空格等少数字符）。
-fn urlencoding(s: &str) -> String {
-    s.replace(':', "%3A")
-        .replace('/', "%2F")
-        .replace(' ', "%20")
+impl Default for IntervalStr {
+    fn default() -> Self {
+        IntervalStr::N(5)
+    }
+}
+
+impl IntervalStr {
+    fn as_u64(&self) -> u64 {
+        match self {
+            IntervalStr::N(n) => *n,
+            IntervalStr::S(s) => s.trim().parse().unwrap_or(5),
+        }
+    }
+}
+
+/// 轮询成功后返回的授权码 + 服务端生成的 PKCE 参数。
+#[derive(Debug, Deserialize)]
+struct CodeSuccessResp {
+    authorization_code: String,
+    #[allow(dead_code)] // 服务端返回，协议完整性保留；换 token 只用 code_verifier
+    code_challenge: String,
+    code_verifier: String,
+}
+
+/// 第一步：请求设备码。
+pub async fn start() -> Result<CodexDeviceStart> {
+    let client = crate::core::providers::http_client();
+    let resp = client
+        .post(format!("{ISSUER}/api/accounts/deviceauth/usercode"))
+        .header("Content-Type", "application/json")
+        .header("originator", ORIGINATOR)
+        .header("User-Agent", format!("{ORIGINATOR}/0.55.0 (TokenMeter)"))
+        .json(&json!({ "client_id": CLIENT_ID }))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("请求 Codex 设备码失败 {status}: {body}"));
+    }
+    let d: UserCodeResp = resp.json().await?;
+    Ok(CodexDeviceStart {
+        user_code: d.user_code,
+        verify_url: VERIFY_URL.to_string(),
+        device_auth_id: d.device_auth_id,
+        interval_secs: d.interval.as_u64().max(3),
+    })
+}
+
+/// 第二步：轮询直到用户授权，换 token，返回凭证 JSON。
+pub async fn poll_until_authorized(
+    device_auth_id: &str,
+    user_code: &str,
+    interval_secs: u64,
+) -> Result<serde_json::Value> {
+    let client = crate::core::providers::http_client();
+    let url = format!("{ISSUER}/api/accounts/deviceauth/token");
+    let deadline = Instant::now() + POLL_TIMEOUT;
+
+    loop {
+        if Instant::now() >= deadline {
+            return Err(anyhow!("Codex 授权超时（15 分钟未完成）"));
+        }
+        tokio::time::sleep(Duration::from_secs(interval_secs.max(3))).await;
+
+        let resp = client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("originator", ORIGINATOR)
+            .header("User-Agent", format!("{ORIGINATOR}/0.55.0 (TokenMeter)"))
+            .json(&json!({
+                "device_auth_id": device_auth_id,
+                "user_code": user_code,
+            }))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let code: CodeSuccessResp = resp.json().await?;
+            return exchange_tokens(&code).await;
+        }
+        if status.as_u16() == 403 || status.as_u16() == 404 {
+            // 用户还没完成授权，继续轮询
+            continue;
+        }
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("Codex 设备码轮询失败 HTTP {status}: {body}"));
+    }
+}
+
+/// 用 authorization_code + code_verifier 换 access/refresh token。
+async fn exchange_tokens(code: &CodeSuccessResp) -> Result<serde_json::Value> {
+    let client = crate::core::providers::http_client();
+    let redirect_uri = format!("{ISSUER}/deviceauth/callback");
+    let body = format!(
+        "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&code_verifier={}",
+        urlencode(&code.authorization_code),
+        urlencode(&redirect_uri),
+        urlencode(CLIENT_ID),
+        urlencode(&code.code_verifier),
+    );
+    let resp = client
+        .post(format!("{ISSUER}/oauth/token"))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("originator", ORIGINATOR)
+        .body(body)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("Codex 换 token 失败 HTTP {status}: {body}"));
+    }
+    let v: serde_json::Value = resp.json().await?;
+    let access = v
+        .get("access_token")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| anyhow!("换 token 响应缺少 access_token"))?;
+    let account_id = v
+        .get("id_token")
+        .and_then(|x| x.as_str())
+        .and_then(extract_account_id)
+        .unwrap_or_default();
+
+    Ok(json!({
+        "access_token": access,
+        "refresh_token": v.get("refresh_token").and_then(|x| x.as_str()).unwrap_or(""),
+        "account_id": account_id,
+    }))
 }
 
 /// 从 id_token (JWT) 的 payload 解出 chatgpt_account_id。
@@ -66,7 +188,6 @@ fn extract_account_id(id_token: &str) -> Option<String> {
     let payload_b64 = id_token.split('.').nth(1)?;
     let payload = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-    // OpenAI 把 account_id 放在自定义 claim 里（多个可能位置，逐一试）
     v.get("chatgpt_account_id")
         .or_else(|| v.get("https://api.openai.com/auth").and_then(|a| a.get("chatgpt_account_id")))
         .or_else(|| v.get("account_id"))
@@ -74,128 +195,22 @@ fn extract_account_id(id_token: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenResp {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
-    error: Option<String>,
-    error_description: Option<String>,
-}
-
-/// 在 1455 端口监听一次回调，返回 (code, state)。
-async fn wait_for_callback(listener: TcpListener) -> Result<(String, String)> {
-    // 10 分钟超时
-    let accept = tokio::time::timeout(std::time::Duration::from_secs(600), listener.accept())
-        .await
-        .map_err(|_| anyhow!("等待授权回调超时（10 分钟）"))??;
-
-    let (mut socket, _) = accept;
-    let mut buf = vec![0u8; 4096];
-    let n = socket.read(&mut buf).await?;
-    let req = String::from_utf8_lossy(&buf[..n]);
-
-    // 解析请求行：GET /auth/callback?code=...&state=... HTTP/1.1
-    let line = req.lines().next().unwrap_or("");
-    let path = line.split_whitespace().nth(1).unwrap_or("");
-    let (mut code, mut state) = (String::new(), String::new());
-    if let Some(q) = path.split('?').nth(1) {
-        for pair in q.split('&') {
-            let mut kv = pair.splitn(2, '=');
-            match (kv.next(), kv.next()) {
-                (Some("code"), Some(v)) => code = v.to_string(),
-                (Some("state"), Some(v)) => state = v.to_string(),
-                _ => {}
+/// 极简 RFC3986 百分号编码（表单参数用）。
+fn urlencode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
             }
+            _ => out.push_str(&format!("%{b:02X}")),
         }
     }
-
-    // 回一个友好页面让用户知道可以关闭了
-    let ok = !code.is_empty();
-    let body = if ok {
-        "<html><body style='font-family:sans-serif;text-align:center;padding:60px'>\
-         <h2>✅ 授权成功</h2><p>可以关闭此页面，回到 TokenMeter。</p></body></html>"
-    } else {
-        "<html><body style='font-family:sans-serif;text-align:center;padding:60px'>\
-         <h2>⚠️ 授权失败</h2><p>未收到授权码，请重试。</p></body></html>"
-    };
-    let resp = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = socket.write_all(resp.as_bytes()).await;
-    let _ = socket.shutdown().await;
-
-    if code.is_empty() {
-        return Err(anyhow!("回调中未收到授权码"));
-    }
-    Ok((code, state))
+    out
 }
 
-/// 完整流程：打开浏览器 → 等回调 → 换 token → 返回凭证 JSON。
-/// `open_browser` 由调用方注入（前端 plugin-shell 的 open）。
-pub async fn run_flow<F, Fut>(open_browser: F) -> Result<serde_json::Value>
-where
-    F: FnOnce(String) -> Fut,
-    Fut: std::future::Future<Output = ()>,
-{
-    let verifier = gen_verifier();
-    let challenge = challenge_of(&verifier);
-    let mut state_bytes = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut state_bytes);
-    let state = URL_SAFE_NO_PAD.encode(state_bytes);
-
-    let url = authorize_url(&challenge, &state);
-
-    // 先绑定端口再开浏览器：绑定失败立即报错（不开浏览器、不空等 10 分钟），
-    // 也消除了"回调先于 bind 到达"的竞态。
-    let listener = TcpListener::bind(("127.0.0.1", REDIRECT_PORT))
-        .await
-        .map_err(|e| anyhow!("无法监听回调端口 {REDIRECT_PORT}（可能已被 Codex CLI 占用）: {e}"))?;
-    let callback_task = tokio::spawn(wait_for_callback(listener));
-    open_browser(url).await;
-
-    let (code, cb_state) = callback_task
-        .await
-        .map_err(|e| anyhow!("回调任务失败: {e}"))??;
-
-    if cb_state != state {
-        return Err(anyhow!("state 校验失败（可能的 CSRF，已中止）"));
-    }
-
-    // 换 token
-    let client = crate::core::providers::http_client();
-    let resp = client
-        .post(TOKEN_URL)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("client_id", CLIENT_ID),
-            ("code", code.as_str()),
-            ("redirect_uri", REDIRECT_URI),
-            ("code_verifier", verifier.as_str()),
-        ])
-        .send()
-        .await?
-        .json::<TokenResp>()
-        .await?;
-
-    let Some(access_token) = resp.access_token else {
-        return Err(anyhow!(
-            "换 token 失败: {} {}",
-            resp.error.unwrap_or_default(),
-            resp.error_description.unwrap_or_default()
-        ));
-    };
-    let account_id = resp
-        .id_token
-        .as_deref()
-        .and_then(extract_account_id)
-        .unwrap_or_default();
-
-    Ok(json!({
-        "access_token": access_token,
-        "refresh_token": resp.refresh_token.unwrap_or_default(),
-        "account_id": account_id,
-    }))
+// 保留 Utc 引用避免误删（fetched_at 等时间字段在其他模块处理）
+#[allow(dead_code)]
+fn _keep_chrono() -> i64 {
+    Utc::now().timestamp()
 }
