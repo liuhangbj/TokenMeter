@@ -81,6 +81,7 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="wizard">
+      <button className="link-back" onClick={onDone}>← 返回</button>
       <div className="wizard-title">添加供应商</div>
       <div className="wizard-sub">选择要监控的平台</div>
       {loadError && <div className="form-error">加载供应商列表失败：{loadError}</div>}
