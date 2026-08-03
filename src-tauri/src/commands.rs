@@ -50,46 +50,44 @@ pub fn on_panel_open(ctl: State<SchedulerCtl>) {
     ctl.trigger_refresh();
 }
 
-/// 自适应面板尺寸：前端量出内容实际宽高后调用，把窗口缩放到该尺寸。
-/// 宽度封顶 560px（添加供应商向导约 506px），高度封顶 800px。
+/// 面板高度自适应：宽度锁定（PANEL_W），只调整高度（封顶 800px，超出由 CSS 滚动）。
+/// 高度未变化时直接跳过，不产生任何重定位。
 #[tauri::command]
-pub fn resize_popover(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+pub fn resize_popover(app: AppHandle, height: f64) -> Result<(), String> {
     let Some(w) = app.get_webview_window("popover") else {
         return Err("popover 窗口不存在".to_string());
     };
-    let wpx = width.clamp(320.0, 560.0);
     let h = height.clamp(120.0, 800.0);
 
-    // 尺寸未变化时直接跳过：避免"显示后又重定位"造成的闪切
+    // 高度未变化时直接跳过：避免"显示后又重定位"造成的闪切
     let scale = w.scale_factor().unwrap_or(1.0);
-    let cur = w
+    let cur_h = w
         .inner_size()
-        .map(|s| (s.width as f64 / scale, s.height as f64 / scale))
-        .unwrap_or((0.0, 0.0));
-    if (cur.0 - wpx).abs() <= 2.0 && (cur.1 - h).abs() <= 2.0 {
+        .map(|s| s.height as f64 / scale)
+        .unwrap_or(0.0);
+    if (cur_h - h).abs() <= 2.0 {
         return Ok(());
     }
 
-    // Windows：先按【目标尺寸】计算右下角锚点位置并移动，再 set_size——
-    // 顺序反过来会出现"窗口先伸出去、再被拉回来"的可见跳动。
+    // Windows：宽度锁定 → x 恒定；只按【目标高度】更新 y（底部边缘贴任务栏不动），
+    // 再 set_size。顺序不能反，否则会出现"窗口先伸出去、再被拉回来"的可见跳动。
     #[cfg(target_os = "windows")]
     {
         if let Ok(Some(m)) = w.current_monitor() {
             let wa = m.work_area(); // 物理坐标，已扣除任务栏
             let margin = 8.0_f64;
-            // 用目标尺寸（逻辑 wpx/h × scale）计算，确保移动后右下角仍在锚点
             let scale = w.scale_factor().unwrap_or(1.0);
-            let target_w = wpx * scale;
-            let target_h = h * scale;
-            let x = (wa.position.x as f64 + wa.size.width as f64 - target_w - margin)
+            let x = (wa.position.x as f64 + wa.size.width as f64
+                - crate::platform::tray::PANEL_W as f64 * scale
+                - margin)
                 .max(wa.position.x as f64 + 8.0);
-            let y = (wa.position.y as f64 + wa.size.height as f64 - target_h - margin)
+            let y = (wa.position.y as f64 + wa.size.height as f64 - h * scale - margin)
                 .max(wa.position.y as f64 + 8.0);
             let _ = w.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
         }
     }
 
-    let size = tauri::LogicalSize::new(wpx, h);
+    let size = tauri::LogicalSize::new(crate::platform::tray::PANEL_W as f64, h);
     w.set_size(tauri::Size::Logical(size)).map_err(|e| e.to_string())?;
     Ok(())
 }

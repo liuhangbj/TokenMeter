@@ -25,8 +25,9 @@ const MENUBAR_RGBA: &[u8] = include_bytes!("../../icons/menubar.rgba");
 #[cfg(not(target_os = "macos"))]
 const TRAY_COLOR_RGBA: &[u8] = include_bytes!("../../icons/tray_color.rgba");
 const MENUBAR_SIZE: u32 = 64;
-/// 面板宽度（与前端 CSS 一致）
-const PANEL_W: i32 = 380;
+/// 面板固定宽度（锁定，不随视图切换变化）：
+/// 480px 向导 + 面板 padding 12*2 + border 1*2 = 506
+pub(crate) const PANEL_W: i32 = 506;
 /// 托盘单击防抖间隔（毫秒）：双击的第二击在此窗口内被忽略
 const CLICK_DEBOUNCE_MS: u64 = 300;
 /// 上次托盘点击的毫秒时间戳（双击防抖用）
@@ -126,8 +127,8 @@ fn position_and_show(
         if let Some(m) = monitor {
             let wa = m.work_area(); // 物理坐标，已扣除任务栏
             let margin = 8.0_f64;
-            // 右下角锚定：x/y 只与工作区与面板尺寸有关，与托盘 rect/面板高度无关
-            let x = (wa.position.x as f64 + wa.size.width as f64 - panel_w - margin)
+            // 右下角锚定：宽度固定 → x 恒定；y 只随当前高度变化，底部边缘贴任务栏
+            let x = (wa.position.x as f64 + wa.size.width as f64 - PANEL_W as f64 - margin)
                 .max(wa.position.x as f64 + 8.0);
             let y = (wa.position.y as f64 + wa.size.height as f64 - panel_h - margin)
                 .max(wa.position.y as f64 + 8.0);

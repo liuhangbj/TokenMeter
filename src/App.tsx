@@ -96,29 +96,22 @@ export default function App() {
     }
   }, []);
 
-  // 自适应窗口尺寸：监听内容节点（.popover-body / .wizard）而非滚动容器，
-  // 否则内容在 max-height 内增长时 ResizeObserver 不会触发（窗口高度卡在旧值）。
-  // 宽度随视图变化（主面板 380 / 添加供应商向导约 506），高度随内容走（封顶 800）。
-  const lastSize = useRef({ w: 0, h: 0 });
+  // 窗口高度自适应：宽度已锁定（后端 PANEL_W=506），这里只量高度。
+  // 监听内容节点（.popover-body / .wizard）而非滚动容器，
+  // 否则内容在 max-height 内增长时 ResizeObserver 不会触发（高度卡在旧值）。
+  const lastH = useRef(0);
   const pendingTimer = useRef<number | null>(null);
   useEffect(() => {
     const el = document.querySelector(".popover");
     if (!el) return;
     const apply = (force = false) => {
-      let w = 380;
-      if (view === "add") {
-        const wizard = document.querySelector(".wizard");
-        const wizardW = wizard ? Math.ceil(wizard.getBoundingClientRect().width) : 480;
-        // popover 左右 padding 12*2 + border 1*2
-        w = wizardW + 26;
-      }
       const h = Math.ceil(el.scrollHeight);
-      const changed = w !== lastSize.current.w || h !== lastSize.current.h;
+      const changed = h !== lastH.current;
       // force 用于兜底重发：即使测量值没变，也再 set_size 一次，
       // 纠正 Windows WebView2 偶发未跟随窗口尺寸的竞态。
       if (!force && !changed) return;
-      lastSize.current = { w, h };
-      invoke("resize_popover", { width: w, height: h }).catch(() => {});
+      lastH.current = h;
+      invoke("resize_popover", { height: h }).catch(() => {});
     };
     // 尾随防抖：内容频繁变化时合并为一次最终尺寸，减少 resize 竞态
     const schedule = () => {
