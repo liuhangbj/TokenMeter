@@ -1,11 +1,11 @@
 // 标准账户卡片：只识别主指标、额度行与余额行，不感知具体供应商。
-import { open } from "@tauri-apps/plugin-shell";
 import type { AccountCardModel, BalanceCardItem, QuotaCardItem, QuotaUnit } from "./types";
 import {
   brandStyleVars, fmtMoney, fmtTokens, levelClass, resetIn, statusDotClass,
   updatedAgo, usageLevel,
 } from "./utils";
 import { BrandIcon } from "./icons";
+import { openExternal } from "./external";
 
 function isCurrency(unit: QuotaUnit): unit is { Currency: string } {
   return typeof unit === "object" && "Currency" in unit;
@@ -137,7 +137,7 @@ export function ProviderCard({
             rel="noreferrer"
             onClick={(event) => {
               event.preventDefault();
-              open(link);
+              openExternal(link).catch((error) => console.error("打开详情链接失败", error));
             }}
           >
             查看详情 ↗

@@ -1,9 +1,9 @@
 // 添加供应商：厂商折叠分组 → 产品类型 → 数据驱动的认证流程。
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-shell";
 import type { AddableProvider, AuthField, AuthSpec } from "./types";
 import { brandStyleVars } from "./utils";
+import { openExternal } from "./external";
 import {
   BrandIcon,
   IconApi,
@@ -319,11 +319,37 @@ function OAuthFlow({
   type Status =
     | { kind: "idle" }
     | { kind: "working"; note: string }
-    | { kind: "device"; code: string }
+    | { kind: "device"; code: string; url: string; openError?: string }
     | { kind: "success" }
     | { kind: "error"; msg: string };
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [copied, setCopied] = useState(false);
   const busy = status.kind === "working" || status.kind === "device";
+
+  const openAuthPage = async (url: string) => {
+    try {
+      await openExternal(url);
+      setStatus((current) => current.kind === "device"
+        ? { ...current, openError: undefined }
+        : current);
+    } catch (error) {
+      setStatus((current) => current.kind === "device"
+        ? { ...current, openError: String(error) }
+        : current);
+    }
+  };
+
+  const copyAuthUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      setStatus((current) => current.kind === "device"
+        ? { ...current, openError: `复制失败，请手动选择下方地址：${String(error)}` }
+        : current);
+    }
+  };
 
   const tryImport = async () => {
     setStatus({ kind: "working", note: "正在检测本机凭证…" });
@@ -341,13 +367,14 @@ function OAuthFlow({
   };
 
   const startDevice = async () => {
+    setCopied(false);
     setStatus({ kind: "working", note: "正在请求授权码…" });
     try {
       const start = await invoke<{ user_code: string; verify_url: string; device_code: string; interval_secs: number }>(
         "kimi_device_start"
       );
-      setStatus({ kind: "device", code: start.user_code });
-      await open(start.verify_url);
+      setStatus({ kind: "device", code: start.user_code, url: start.verify_url });
+      await openAuthPage(start.verify_url);
       await invoke("kimi_device_poll", {
         deviceCode: start.device_code,
         intervalSecs: start.interval_secs,
@@ -360,13 +387,14 @@ function OAuthFlow({
   };
 
   const startCodex = async () => {
+    setCopied(false);
     setStatus({ kind: "working", note: "正在请求授权码…" });
     try {
       const start = await invoke<{ user_code: string; verify_url: string; device_auth_id: string; interval_secs: number }>(
         "codex_device_start"
       );
-      setStatus({ kind: "device", code: start.user_code });
-      await open(start.verify_url);
+      setStatus({ kind: "device", code: start.user_code, url: start.verify_url });
+      await openAuthPage(start.verify_url);
       await invoke("codex_device_poll", {
         deviceAuthId: start.device_auth_id,
         userCode: start.user_code,
@@ -396,6 +424,16 @@ function OAuthFlow({
             <span>浏览器授权码</span>
             <strong>{status.code}</strong>
             <small>完成登录后，此窗口会自动继续</small>
+            <code className="device-url">{status.url}</code>
+            {status.openError && (
+              <small className="device-open-error">浏览器未能自动打开，请重试或复制地址。</small>
+            )}
+            <span className="device-actions">
+              <button type="button" onClick={() => openAuthPage(status.url)}>重新打开</button>
+              <button type="button" onClick={() => copyAuthUrl(status.url)}>
+                {copied ? "已复制" : "复制地址"}
+              </button>
+            </span>
           </div>
         )}
         {status.kind === "working" && <div className="form-status working">{status.note}</div>}

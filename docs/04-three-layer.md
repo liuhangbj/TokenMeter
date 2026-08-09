@@ -20,7 +20,7 @@
    和面板冻结，单窗口从根上消除这一类问题。
 2. **平台差异只出现在 `platform/`**：
    - 托盘定位/点击防抖/失焦守卫（Windows 与 macOS 行为不同）
-   - 系统浏览器打开（`open` vs `cmd start`）
+   - 系统浏览器打开（Windows 使用 ShellExecuteW）
    - macOS `ActivationPolicy::Accessory`（隐藏 Dock）
 3. **构建正确性**：所有独立二进制必须启用 `custom-protocol` feature，
    否则 release 构建也会按 dev 模式连 `devUrl`（localhost:1420）。

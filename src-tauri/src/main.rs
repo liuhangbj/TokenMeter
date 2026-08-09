@@ -90,7 +90,6 @@ async fn main() {
             MacosLauncher::LaunchAgent,
             None,
         ))
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // 单实例锁：纯菜单栏 App 必须单实例。重复启动时聚焦已有实例的
@@ -111,6 +110,7 @@ async fn main() {
             commands::set_general_settings,
             commands::set_account_nickname,
             commands::set_card_order,
+            commands::open_external,
             commands::interval_options,
             commands::save_api_key_provider,
             commands::import_local_credential,

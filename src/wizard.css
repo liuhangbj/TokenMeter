@@ -317,6 +317,25 @@
   font-variant-numeric: tabular-nums;
 }
 .device-status small { color: var(--text-3); font-size: 9.5px; }
+.device-url {
+  user-select: text;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.device-open-error { color: var(--bad) !important; }
+.device-actions { display: flex; gap: 7px; margin-top: 3px; }
+.device-actions button {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-2);
+  background: var(--control-bg);
+  font: inherit;
+  cursor: pointer;
+}
+.device-actions button:hover { color: var(--text-1); background: var(--control-strong-bg); }
 
 .btn.block { display: block; width: 100%; min-height: 38px; padding: 9px 12px; font-size: 11px; }
 .btn.secondary { background: var(--control-strong-bg); }

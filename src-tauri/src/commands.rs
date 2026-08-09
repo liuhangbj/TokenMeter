@@ -7,7 +7,7 @@ use crate::core::oauth_codex;
 use crate::core::oauth_device;
 use crate::core::providers::{
     self, presentation::AccountCardModel, presentation::BrandStyle, AddAccountType, AuthSpec,
-    Credential,
+    Credential, HealthStatus, Provider,
 };
 use crate::core::scheduler::Snapshots;
 use crate::core::scheduler_ctl::SchedulerCtl;
@@ -191,6 +191,22 @@ pub fn interval_options() -> Vec<u64> {
     settings::INTERVAL_OPTIONS.to_vec()
 }
 
+fn validated_external_url(url: &str) -> Result<String, String> {
+    let parsed = reqwest::Url::parse(url).map_err(|error| format!("无效链接: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("只允许打开 http/https 链接".to_string());
+    }
+    Ok(parsed.to_string())
+}
+
+/// 统一由后端调用系统默认浏览器，避免纯托盘 Windows App 的前端 shell
+/// plugin 无法拉起浏览器。URL 先做协议白名单校验。
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let url = validated_external_url(&url)?;
+    crate::platform::open_browser(&url).map_err(|error| format!("无法打开系统浏览器: {error}"))
+}
+
 /// 应用开机启动设置到系统（登录项/注册表）。
 fn apply_autostart(app: &AppHandle, enable: bool) -> Result<(), String> {
     let mgr = app.autolaunch();
@@ -240,15 +256,42 @@ pub async fn import_local_credential(
 
     match p.detect_local().await {
         Some(cred) => {
-            p.fetch(&cred)
-                .await
-                .map_err(|e| format!("本机凭证已失效：{e}"))?;
+            let cred = validate_or_refresh_local_credential(p.as_ref(), cred).await?;
             store::create_credential(&provider_id, &cred).map_err(|e| e.to_string())?;
             ctl.trigger_refresh();
             Ok(true)
         }
         None => Ok(false),
     }
+}
+
+/// 本机 CLI 的 access token 可能已过期，但 refresh token 仍然有效。
+/// 先验证；只有明确收到 AuthExpired 才续期并重试，网络错误不会被误报成过期。
+async fn validate_or_refresh_local_credential(
+    provider: &dyn Provider,
+    credential: Credential,
+) -> Result<Credential, String> {
+    let first = provider
+        .fetch(&credential)
+        .await
+        .map_err(|error| format!("验证本机凭证失败：{error}"))?;
+    if first.status != HealthStatus::AuthExpired {
+        return Ok(credential);
+    }
+
+    let refreshed = provider
+        .refresh(&credential)
+        .await
+        .map_err(|error| format!("本机凭证自动续期失败：{error}"))?
+        .ok_or_else(|| "本机凭证已过期且无法自动续期，请使用浏览器授权".to_string())?;
+    let retried = provider
+        .fetch(&refreshed)
+        .await
+        .map_err(|error| format!("续期后验证本机凭证失败：{error}"))?;
+    if retried.status == HealthStatus::AuthExpired {
+        return Err("本机凭证续期后仍被拒绝，请使用浏览器授权".to_string());
+    }
+    Ok(refreshed)
 }
 
 /// Kimi 设备码授权：第一步，请求设备码（返回 user_code + verify_url 给前端展示）。
@@ -353,6 +396,74 @@ pub fn log_frontend_error(msg: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::providers::{BillingMode, Brand, Fidelity, ProviderSnapshot};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct RefreshingProvider {
+        fetches: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for RefreshingProvider {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn display_name(&self) -> &'static str {
+            "Mock"
+        }
+
+        fn brand(&self) -> Brand {
+            Brand::OpenAI
+        }
+
+        fn billing_mode(&self) -> BillingMode {
+            BillingMode::Subscription
+        }
+
+        fn auth_spec(&self) -> AuthSpec {
+            AuthSpec::OAuth {
+                authorize_url: "https://example.com/auth",
+                token_url: "https://example.com/token",
+                client_id: "mock",
+                scopes: &[],
+                pkce: false,
+            }
+        }
+
+        async fn refresh(&self, _cred: &Credential) -> anyhow::Result<Option<Credential>> {
+            Ok(Some(Credential {
+                data: serde_json::json!({ "access_token": "fresh" }),
+            }))
+        }
+
+        async fn fetch(&self, cred: &Credential) -> anyhow::Result<ProviderSnapshot> {
+            self.fetches.fetch_add(1, Ordering::Relaxed);
+            let fresh = cred
+                .data
+                .get("access_token")
+                .and_then(|value| value.as_str())
+                == Some("fresh");
+            Ok(ProviderSnapshot {
+                account_id: String::new(),
+                account_label: None,
+                provider_id: self.id().to_string(),
+                display_name: self.display_name().to_string(),
+                plan_name: None,
+                billing: BillingMode::Subscription,
+                balance: None,
+                windows: vec![],
+                fidelity: Fidelity::Exact,
+                status: if fresh {
+                    HealthStatus::Ok
+                } else {
+                    HealthStatus::AuthExpired
+                },
+                fetched_at: 0,
+                last_error: None,
+            })
+        }
+    }
 
     #[test]
     fn addable_providers_are_nonempty_and_serializable() {
@@ -385,5 +496,29 @@ mod tests {
         assert!(json.contains("\"account_type\":\"plan\""));
         assert!(json.contains("\"account_type\":\"api\""));
         assert!(json.contains("\"accent_dark\""));
+    }
+
+    #[test]
+    fn external_links_only_allow_http_and_https() {
+        assert!(validated_external_url("https://auth.openai.com/codex/device").is_ok());
+        assert!(validated_external_url("http://localhost:1455/callback").is_ok());
+        assert!(validated_external_url("file:///tmp/secret").is_err());
+        assert!(validated_external_url("javascript:alert(1)").is_err());
+    }
+
+    #[tokio::test]
+    async fn expired_local_credential_is_refreshed_and_verified_again() {
+        let provider = RefreshingProvider {
+            fetches: AtomicUsize::new(0),
+        };
+        let old = Credential {
+            data: serde_json::json!({ "access_token": "expired", "refresh_token": "refresh" }),
+        };
+
+        let imported = validate_or_refresh_local_credential(&provider, old)
+            .await
+            .expect("refresh should recover expired local credential");
+        assert_eq!(imported.data["access_token"], "fresh");
+        assert_eq!(provider.fetches.load(Ordering::Relaxed), 2);
     }
 }

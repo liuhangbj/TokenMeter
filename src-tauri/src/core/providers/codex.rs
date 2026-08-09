@@ -19,8 +19,8 @@ use super::*;
 use crate::core::oauth_codex;
 use crate::core::providers::Brand;
 use async_trait::async_trait;
-use chrono::Utc;
-use serde::Deserialize;
+use chrono::{SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
@@ -28,6 +28,23 @@ use std::path::PathBuf;
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
 const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const ORIGINATOR: &str = "codex_cli_rs";
+const SOURCE_AUTH_PATH: &str = "source_auth_path";
+
+#[derive(Serialize)]
+struct RefreshRequest<'a> {
+    client_id: &'static str,
+    grant_type: &'static str,
+    refresh_token: &'a str,
+}
+
+fn refresh_request(refresh_token: &str) -> RefreshRequest<'_> {
+    RefreshRequest {
+        client_id: CLIENT_ID,
+        grant_type: "refresh_token",
+        refresh_token,
+    }
+}
 
 pub struct CodexProvider;
 
@@ -47,6 +64,86 @@ impl CodexProvider {
         v.push(home.join(".codex/auth.json"));
         v
     }
+}
+
+fn credential_string<'a>(credential: &'a Credential, key: &str) -> Option<&'a str> {
+    credential
+        .data
+        .get(key)
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+}
+
+fn cli_account_id(auth: &serde_json::Value) -> Option<String> {
+    let tokens = auth.get("tokens")?;
+    tokens
+        .get("account_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            tokens
+                .get("id_token")
+                .and_then(|value| value.as_str())
+                .and_then(oauth_codex::extract_identity)
+                .map(|identity| identity.account_id)
+                .filter(|value| !value.is_empty())
+        })
+}
+
+/// 将轮换后的 token 合并回 Codex CLI 的 auth.json，同时保留 auth_mode、
+/// OPENAI_API_KEY 等未知字段。若 CLI 已切换到另一个账号则拒绝覆盖。
+fn merge_refreshed_tokens_into_cli_auth(
+    auth: &mut serde_json::Value,
+    previous: &Credential,
+    refreshed: &Credential,
+) -> anyhow::Result<bool> {
+    let previous_account_id = credential_string(previous, "account_id");
+    let current_account_id = cli_account_id(auth);
+    if let (Some(previous_id), Some(current_id)) =
+        (previous_account_id, current_account_id.as_deref())
+    {
+        if previous_id != current_id {
+            return Ok(false);
+        }
+    }
+
+    let tokens = auth
+        .get_mut("tokens")
+        .and_then(|value| value.as_object_mut())
+        .ok_or_else(|| anyhow::anyhow!("Codex CLI auth.json 缺少 tokens 对象"))?;
+    for key in ["access_token", "refresh_token", "id_token", "account_id"] {
+        if let Some(value) = credential_string(refreshed, key) {
+            tokens.insert(
+                key.to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
+        }
+    }
+    auth["last_refresh"] =
+        serde_json::Value::String(Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true));
+    Ok(true)
+}
+
+fn sync_refreshed_cli_auth(previous: &Credential, refreshed: &Credential) -> anyhow::Result<bool> {
+    let Some(source) = credential_string(previous, SOURCE_AUTH_PATH).map(PathBuf::from) else {
+        return Ok(false);
+    };
+    if !CodexProvider::candidate_paths()
+        .iter()
+        .any(|candidate| candidate == &source)
+    {
+        anyhow::bail!("拒绝写入非 Codex CLI 凭证路径");
+    }
+    let contents = fs::read_to_string(&source)?;
+    let mut auth: serde_json::Value = serde_json::from_str(&contents)?;
+    if !merge_refreshed_tokens_into_cli_auth(&mut auth, previous, refreshed)? {
+        log::info!("Codex CLI 已切换账号，跳过同步轮换后的 token");
+        return Ok(false);
+    }
+    let data = serde_json::to_string_pretty(&auth)?;
+    crate::core::store::write_private(&source, data.as_bytes())?;
+    Ok(true)
 }
 
 // ---------- wham/usage 响应结构 ----------
@@ -283,6 +380,7 @@ impl Provider for CodexProvider {
                             "account_id": account_id,
                             "refresh_token": tokens.get("refresh_token").and_then(|x| x.as_str()).unwrap_or(""),
                             "account_label": identity.account_label,
+                            (SOURCE_AUTH_PATH): p.to_string_lossy(),
                         }),
                     });
                 }
@@ -322,15 +420,14 @@ impl Provider for CodexProvider {
         let client = super::http_client();
         let resp = client
             .post(TOKEN_URL)
-            .form(&[
-                ("client_id", CLIENT_ID),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", rt),
-            ])
+            .header("Content-Type", "application/json")
+            .header("originator", ORIGINATOR)
+            .json(&refresh_request(rt))
             .send()
             .await?;
         if !resp.status().is_success() {
-            return Ok(None);
+            let status = resp.status();
+            return Err(anyhow::anyhow!("Codex 凭证续期失败 HTTP {status}"));
         }
         let v = resp.json::<serde_json::Value>().await?;
         let Some(at) = v.get("access_token").and_then(|x| x.as_str()) else {
@@ -351,15 +448,22 @@ impl Provider for CodexProvider {
             refreshed_identity.account_id
         };
         let account_label = refreshed_identity.account_label.or(previous_account_label);
-        Ok(Some(Credential {
+        let refreshed = Credential {
             data: json!({
                 "access_token": at,
                 "id_token": id_token,
                 "account_id": account_id,
                 "refresh_token": new_rt,
                 "account_label": account_label,
+                (SOURCE_AUTH_PATH): credential_string(cred, SOURCE_AUTH_PATH),
             }),
-        }))
+        };
+        if let Err(error) = sync_refreshed_cli_auth(cred, &refreshed) {
+            // refresh token 可能已经轮换，TokenMeter 必须保留新凭证；CLI 同步失败
+            // 单独记录，不能丢弃已经成功取得的新 token。
+            log::warn!("同步 Codex CLI 轮换凭证失败: {error}");
+        }
+        Ok(Some(refreshed))
     }
 
     async fn fetch(&self, cred: &Credential) -> anyhow::Result<ProviderSnapshot> {
@@ -470,7 +574,11 @@ fn display_plan_name(plan_type: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{credit_balance, display_plan_name, CodexProvider, Credits, NumStr};
+    use super::{
+        credit_balance, display_plan_name, merge_refreshed_tokens_into_cli_auth, refresh_request,
+        CodexProvider, Credits, NumStr, CLIENT_ID,
+    };
+    use crate::core::providers::Credential;
     use crate::core::providers::Provider;
 
     #[test]
@@ -495,5 +603,67 @@ mod tests {
         let balance = credit_balance(Some(&credits)).expect("credits object should stay visible");
         assert_eq!(balance.total, 0.0);
         assert!(!balance.available);
+    }
+
+    #[test]
+    fn refreshed_tokens_merge_into_same_cli_account_without_losing_other_fields() {
+        let mut auth = serde_json::json!({
+            "auth_mode": "chatgpt",
+            "OPENAI_API_KEY": null,
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh",
+                "id_token": "old-id",
+                "account_id": "acct_1"
+            },
+            "future_field": { "keep": true }
+        });
+        let previous = Credential {
+            data: serde_json::json!({ "account_id": "acct_1" }),
+        };
+        let refreshed = Credential {
+            data: serde_json::json!({
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+                "id_token": "new-id",
+                "account_id": "acct_1"
+            }),
+        };
+
+        assert!(merge_refreshed_tokens_into_cli_auth(&mut auth, &previous, &refreshed).unwrap());
+        assert_eq!(auth["tokens"]["access_token"], "new-access");
+        assert_eq!(auth["tokens"]["refresh_token"], "new-refresh");
+        assert_eq!(auth["future_field"]["keep"], true);
+        assert!(auth["last_refresh"].as_str().is_some());
+    }
+
+    #[test]
+    fn refreshed_tokens_do_not_overwrite_cli_after_account_switch() {
+        let mut auth = serde_json::json!({
+            "tokens": { "account_id": "acct_new" },
+            "future_field": "unchanged"
+        });
+        let previous = Credential {
+            data: serde_json::json!({ "account_id": "acct_old" }),
+        };
+        let refreshed = Credential {
+            data: serde_json::json!({ "access_token": "new-access" }),
+        };
+
+        assert!(!merge_refreshed_tokens_into_cli_auth(&mut auth, &previous, &refreshed).unwrap());
+        assert_eq!(auth["future_field"], "unchanged");
+        assert!(auth.get("last_refresh").is_none());
+    }
+
+    #[test]
+    fn refresh_request_matches_current_codex_json_protocol() {
+        assert_eq!(
+            serde_json::to_value(refresh_request("refresh-1")).unwrap(),
+            serde_json::json!({
+                "client_id": CLIENT_ID,
+                "grant_type": "refresh_token",
+                "refresh_token": "refresh-1"
+            })
+        );
     }
 }

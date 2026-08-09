@@ -2,7 +2,7 @@
 //!
 //! 所有平台差异集中在这里：
 //! - `tray`：托盘/菜单栏（macOS 顶部菜单栏、Windows 任务栏托盘）
-//! - `open_browser`：系统浏览器打开（macOS open / Windows start）
+//! - `open_browser`：系统浏览器打开（Windows 使用 ShellExecuteW）
 //! - `setup`：平台级启动配置（macOS Accessory 策略隐藏 Dock）
 //!
 //! 窗口失焦/退出守卫等平台细节见 `crate::main` 的 on_window_event / run 回调。
@@ -17,15 +17,8 @@ pub fn setup(_app: &mut tauri::App) {
     _app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 }
 
-/// 用系统默认浏览器打开 URL。
-#[allow(dead_code)] // 保留给未来的平台侧打开链接场景（当前由前端 plugin-shell 打开）
+/// 用系统默认浏览器打开 URL。Windows 显式使用 ShellExecuteW，绕开 WebView2
+/// 与前端 shell plugin 在无主窗口模式下偶发无法拉起默认浏览器的问题。
 pub fn open_browser(url: &str) -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    let (cmd, args) = ("open", vec![url]);
-    #[cfg(target_os = "windows")]
-    let (cmd, args) = ("cmd", vec!["/C", "start", "", url]);
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let (cmd, args) = ("xdg-open", vec![url]);
-    std::process::Command::new(cmd).args(&args).spawn()?;
-    Ok(())
+    open::that_detached(url)
 }

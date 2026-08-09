@@ -1,5 +1,13 @@
 # 更新记录
 
+## v0.9.5（2026-08-09）
+
+- 修复 Windows 纯托盘模式下 Codex/Kimi 授权页无法打开；改由后端 ShellExecuteW 调用默认浏览器
+- 浏览器打开失败不再终止设备码轮询，并提供重新打开、复制地址和手动选择地址的回退入口
+- 导入已过期的 Codex CLI access token 时，自动使用 refresh token 续期并再次验证
+- Codex refresh 请求改为当前官方 JSON 协议；轮换后的 token 安全同步回同账号 CLI `auth.json`
+- CLI 已切换账号时不覆盖其凭证；网络错误与真正的凭证过期分别提示
+
 ## v0.9.4（2026-08-09）
 
 ### 界面与账号
