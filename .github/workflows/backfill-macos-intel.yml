@@ -70,7 +70,7 @@ jobs:
           test -n "$DMG_SOURCE" && test -s "$DMG_SOURCE"
           test -n "$UPDATE_SOURCE" && test -s "$UPDATE_SOURCE"
           test -s "$UPDATE_SIG_SOURCE"
-          lipo -verify_arch x86_64 "$EXECUTABLE"
+          lipo "$EXECUTABLE" -verify_arch x86_64
           if lipo -archs "$EXECUTABLE" | grep -qw arm64; then
             echo "::error::Intel app unexpectedly contains arm64"
             exit 1
