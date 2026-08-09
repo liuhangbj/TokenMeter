@@ -97,4 +97,5 @@ export interface AddableProvider {
   vendor: AddableVendor;
   brand: BrandStyle;
   auth_spec: AuthSpec;
+  supports_local_import: boolean;
 }

@@ -5,6 +5,7 @@
 
 use crate::core::oauth_codex;
 use crate::core::oauth_device;
+use crate::core::oauth_pkce;
 use crate::core::providers::{
     self, presentation::AccountCardModel, presentation::BrandStyle, AddAccountType, AuthSpec,
     Credential, HealthStatus, Provider,
@@ -38,6 +39,7 @@ pub struct AddableProvider {
     pub vendor: AddableVendor,
     pub brand: BrandStyle,
     pub auth_spec: AuthSpec,
+    pub supports_local_import: bool,
 }
 
 #[derive(Serialize)]
@@ -96,6 +98,7 @@ pub fn list_addable_providers() -> Vec<AddableProvider> {
                 },
                 brand: provider.brand().style(),
                 auth_spec: provider.auth_spec(),
+                supports_local_import: provider.supports_local_import(),
             }
         })
         .collect::<Vec<_>>();
@@ -339,6 +342,66 @@ pub async fn codex_device_poll(
     Ok(())
 }
 
+/// Claude 浏览器 OAuth：生成 PKCE 会话和授权地址。Claude 官方回调页会展示
+/// `code#state`，由用户粘贴回 TokenMeter 完成交换。
+#[tauri::command]
+pub fn claude_oauth_start() -> Result<oauth_pkce::PkceStart, String> {
+    oauth_pkce::start_claude().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn claude_oauth_complete(
+    ctl: State<'_, SchedulerCtl>,
+    session_id: String,
+    code: String,
+) -> Result<(), String> {
+    let credential = oauth_pkce::complete_claude(&session_id, &code)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_and_store_oauth("claude", credential, &ctl).await
+}
+
+/// OpenRouter 浏览器 OAuth：启动一次性 localhost 回调监听器并生成 PKCE 地址。
+#[tauri::command]
+pub async fn openrouter_oauth_start() -> Result<oauth_pkce::PkceStart, String> {
+    oauth_pkce::start_openrouter()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn openrouter_oauth_poll(
+    ctl: State<'_, SchedulerCtl>,
+    session_id: String,
+) -> Result<(), String> {
+    let credential = oauth_pkce::complete_openrouter(&session_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_and_store_oauth("openrouter", credential, &ctl).await
+}
+
+async fn validate_and_store_oauth(
+    provider_id: &str,
+    credential: Credential,
+    ctl: &SchedulerCtl,
+) -> Result<(), String> {
+    let registry = providers::registry();
+    let provider = registry
+        .iter()
+        .find(|provider| provider.id() == provider_id)
+        .ok_or_else(|| format!("未知 provider: {provider_id}"))?;
+    let snapshot = provider
+        .fetch(&credential)
+        .await
+        .map_err(|error| format!("授权成功，但账户信息验证失败：{error}"))?;
+    if snapshot.status == HealthStatus::AuthExpired {
+        return Err("授权凭证已被服务端拒绝，请重新授权".into());
+    }
+    store::create_credential(provider_id, &credential).map_err(|error| error.to_string())?;
+    ctl.trigger_refresh();
+    Ok(())
+}
+
 /// 移除一个已配置账号：删除该账号的加密凭证 + 清掉对应内存快照。
 #[tauri::command]
 pub fn remove_provider(
@@ -468,7 +531,7 @@ mod tests {
     #[test]
     fn addable_providers_are_nonempty_and_serializable() {
         let list = list_addable_providers();
-        assert_eq!(list.len(), 6, "应返回 6 个可添加 provider");
+        assert_eq!(list.len(), 13, "应返回 13 个可添加 provider");
         assert_eq!(list[0].vendor.id, "openai");
         assert_eq!(list[0].account_type, AddAccountType::Plan);
         assert_eq!(list[0].product_name, "Codex 套餐");
@@ -480,9 +543,25 @@ mod tests {
                 .or_insert(0) += 1;
         }
         assert_eq!(vendor_counts.get("openai"), Some(&2));
+        assert_eq!(vendor_counts.get("anthropic"), Some(&2));
+        assert_eq!(vendor_counts.get("openrouter"), Some(&1));
         assert_eq!(vendor_counts.get("moonshot"), Some(&2));
         assert_eq!(vendor_counts.get("deepseek"), Some(&1));
+        assert_eq!(vendor_counts.get("glm"), Some(&2));
+        assert_eq!(vendor_counts.get("minimax"), Some(&2));
         assert_eq!(vendor_counts.get("tencent"), Some(&1));
+        for vendor_id in ["anthropic", "glm", "minimax"] {
+            let account_types = list
+                .iter()
+                .filter(|provider| provider.vendor.id == vendor_id)
+                .map(|provider| provider.account_type)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                account_types,
+                vec![AddAccountType::Plan, AddAccountType::Api],
+                "{vendor_id} 应按 Plan → API 顺序显示双产品入口"
+            );
+        }
         let tokenhub = list
             .iter()
             .find(|provider| provider.id == "tencent_tokenhub")

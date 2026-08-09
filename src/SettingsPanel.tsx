@@ -1,5 +1,6 @@
 // 设置区：开机启动勾选 + 后台刷新间隔下拉 + 检查更新 + 退出应用
 import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import {
   subscribeUpdate,
@@ -29,11 +30,13 @@ export function SettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [options, setOptions] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "idle" });
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setSettings).catch(console.error);
     invoke<number[]>("interval_options").then(setOptions).catch(console.error);
+    getVersion().then(setAppVersion).catch(console.error);
     return subscribeUpdate(setUpdateState);
   }, []);
 
@@ -113,13 +116,19 @@ export function SettingsPanel() {
         </select>
       </label>
 
-      <button
-        className={`settings-update-btn ${updateState.kind === "available" || updateState.kind === "ready" ? "has-update" : ""}`}
-        onClick={onUpdateClick}
-        disabled={busy}
-      >
-        {updateLabel}
-      </button>
+      <div className="settings-update-row">
+        <div className="settings-version">
+          <span>当前版本</span>
+          <strong className="tnum">{appVersion ? `v${appVersion}` : "—"}</strong>
+        </div>
+        <button
+          className={`settings-update-btn ${updateState.kind === "available" || updateState.kind === "ready" ? "has-update" : ""}`}
+          onClick={onUpdateClick}
+          disabled={busy}
+        >
+          {updateLabel}
+        </button>
+      </div>
 
       <div className="settings-hint">打开面板时会立即刷新</div>
 

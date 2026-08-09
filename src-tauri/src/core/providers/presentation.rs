@@ -22,12 +22,26 @@ pub struct BrandStyle {
 impl Brand {
     pub fn style(self) -> BrandStyle {
         match self {
+            Brand::Anthropic => BrandStyle {
+                key: "anthropic",
+                accent_light: "#c15f3c",
+                accent_alt_light: "#9f472b",
+                accent_dark: "#e58b69",
+                accent_alt_dark: "#c96a47",
+            },
             Brand::OpenAI => BrandStyle {
                 key: "openai",
                 accent_light: "#10a37f",
                 accent_alt_light: "#0c8a6b",
                 accent_dark: "#10a37f",
                 accent_alt_dark: "#0c8a6b",
+            },
+            Brand::OpenRouter => BrandStyle {
+                key: "openrouter",
+                accent_light: "#5b52d6",
+                accent_alt_light: "#3f36b5",
+                accent_dark: "#9992ff",
+                accent_alt_dark: "#756de6",
             },
             Brand::Kimi => BrandStyle {
                 key: "kimi",
@@ -49,6 +63,20 @@ impl Brand {
                 accent_alt_light: "#3a52e6",
                 accent_dark: "#6f8aff",
                 accent_alt_dark: "#4d6bfe",
+            },
+            Brand::Glm => BrandStyle {
+                key: "glm",
+                accent_light: "#6b57e8",
+                accent_alt_light: "#4d39c9",
+                accent_dark: "#a79bff",
+                accent_alt_dark: "#8172f2",
+            },
+            Brand::MiniMax => BrandStyle {
+                key: "minimax",
+                accent_light: "#2b52ff",
+                accent_alt_light: "#1738d6",
+                accent_dark: "#7891ff",
+                accent_alt_dark: "#526eff",
             },
             Brand::Tencent => BrandStyle {
                 key: "tencent",
@@ -226,6 +254,15 @@ fn primary_window(
         .max_by_key(|window| period_priority(window.period))
 }
 
+fn primary_currency_value(snapshot: &ProviderSnapshot) -> Option<&QuotaWindow> {
+    snapshot
+        .windows
+        .iter()
+        .filter(|window| is_currency(&window.unit))
+        .filter(|window| window.limit.is_none() && window.used_raw.is_some())
+        .max_by_key(|window| period_priority(window.period))
+}
+
 fn primary_metric(snapshot: &ProviderSnapshot, config: CardConfig) -> CardPrimary {
     match snapshot.billing {
         BillingMode::Subscription => {
@@ -238,16 +275,17 @@ fn primary_metric(snapshot: &ProviderSnapshot, config: CardConfig) -> CardPrimar
                 };
             };
             let remaining = remaining_amount(window);
-            let value = match (&window.unit, window.limit, remaining) {
-                (QuotaUnit::Percent, Some(limit), Some(remaining)) if limit > 0.0 => {
-                    Some(remaining / limit * 100.0)
-                }
-                (_, _, value) => value,
+            // 套餐主值统一显示剩余百分比；原始 token / 请求量仍完整保留在
+            // 下方额度行中，避免主值在不同供应商之间一会儿是数量、一会儿是百分比。
+            let remaining_percent = usage_percent(window).map(|used| (100.0 - used).max(0.0));
+            let (value, unit) = match remaining_percent {
+                Some(value) => (Some(value), Some(QuotaUnit::Percent)),
+                None => (remaining, Some(window.unit.clone())),
             };
             CardPrimary {
                 label: format!("{}余量", window.label),
                 value,
-                unit: Some(window.unit.clone()),
+                unit,
                 health_used_percent: usage_percent(window),
             }
         }
@@ -263,11 +301,19 @@ fn primary_metric(snapshot: &ProviderSnapshot, config: CardConfig) -> CardPrimar
                 unit: Some(QuotaUnit::Currency(balance.currency.clone())),
                 health_used_percent: None,
             },
-            None => CardPrimary {
-                label: "未提供余额".into(),
-                value: None,
-                unit: None,
-                health_used_percent: None,
+            None => match primary_currency_value(snapshot) {
+                Some(window) => CardPrimary {
+                    label: window.label.clone(),
+                    value: window.used_raw,
+                    unit: Some(window.unit.clone()),
+                    health_used_percent: None,
+                },
+                None => CardPrimary {
+                    label: "未提供余额".into(),
+                    value: None,
+                    unit: None,
+                    health_used_percent: None,
+                },
             },
         },
     }
@@ -449,6 +495,40 @@ mod tests {
     }
 
     #[test]
+    fn counted_subscription_uses_percent_for_primary_and_counts_for_detail() {
+        let mut source = snapshot("glm_coding_plan", BillingMode::Subscription);
+        source.windows.push(QuotaWindow {
+            period: WindowPeriod::Week,
+            label: "7 天额度".into(),
+            used: Some(25.0),
+            used_raw: Some(250.0),
+            limit: Some(1000.0),
+            remaining: Some(750.0),
+            unit: QuotaUnit::Tokens,
+            reset_at: None,
+        });
+
+        let card = present(
+            &source,
+            Brand::Glm,
+            CardConfig::for_billing(source.billing),
+            Some(4),
+        );
+        assert_eq!(card.primary.value, Some(75.0));
+        assert_eq!(card.primary.unit, Some(QuotaUnit::Percent));
+        match &card.items[0] {
+            CardItem::Quota {
+                used, limit, unit, ..
+            } => {
+                assert_eq!(*used, Some(250.0));
+                assert_eq!(*limit, Some(1000.0));
+                assert_eq!(*unit, QuotaUnit::Tokens);
+            }
+            _ => panic!("原始计数应保留在额度明细"),
+        }
+    }
+
+    #[test]
     fn kimi_currency_limit_becomes_remaining_balance_not_primary() {
         let mut source = snapshot("kimi_code", BillingMode::Subscription);
         source.windows = vec![
@@ -540,7 +620,9 @@ mod tests {
             CardConfig::for_billing(source.billing),
             None,
         );
-        assert_eq!(card.primary.value, None);
+        assert_eq!(card.primary.label, "本月花费");
+        assert_eq!(card.primary.value, Some(12.5));
+        assert_eq!(card.primary.unit, Some(QuotaUnit::Currency("USD".into())));
         assert!(matches!(card.items[0], CardItem::Balance { .. }));
         let json = serde_json::to_string(&card).expect("卡片应可序列化");
         assert!(json.contains("\"kind\":\"balance\""));
@@ -549,7 +631,7 @@ mod tests {
     #[test]
     fn every_registered_provider_can_emit_the_standard_contract() {
         let providers = registry();
-        assert_eq!(providers.len(), 8);
+        assert_eq!(providers.len(), 15);
 
         for provider in providers {
             let mut source = snapshot(provider.id(), provider.billing_mode());

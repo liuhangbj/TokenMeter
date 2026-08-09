@@ -114,6 +114,25 @@ export function IconGauge({ size = 20 }: IconProps) {
  * 图形保持单色，颜色由卡片的品牌 token 控制。
  */
 export function BrandIcon({ brand, label, size = 22 }: BrandIconProps) {
+  if (brand === "anthropic") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4.2 19 10.7 4.8h2.6L19.8 19M7.2 15h9.6M9.2 19l5.6-14.2" stroke="currentColor" strokeWidth="2.15" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (brand === "openrouter") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M2.5 9.1c2.8 0 4.8-2.5 7.2-4 2.7-1.7 5-1.4 8.1-1.4" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
+        <path d="m17 1.5 4 2.2-4 2.2V1.5Z" fill="currentColor" />
+        <path d="M2.5 14.9c2.8 0 4.8 2.5 7.2 4 2.7 1.7 5 1.4 8.1 1.4" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
+        <path d="m17 18.1 4 2.2-4 2.2v-4.4Z" fill="currentColor" />
+      </svg>
+    );
+  }
+
   if (brand === "kimi") {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -137,6 +156,24 @@ export function BrandIcon({ brand, label, size = 22 }: BrandIconProps) {
         <path d="M3.2 13.4c2.2 3.9 6.1 5.8 10.2 4.6 3.1-.9 5.4-3.2 6.8-6.1-1.7.8-3.3.7-4.7-.3-1.8-1.4-3.7-2.2-6.1-1.7-2.4.5-4.4 1.8-6.2 3.5Z" fill="currentColor" />
         <path d="M13.9 9.8c.7-2.4 2.3-4.1 4.8-4.8-.1 2.2-.9 4-2.5 5.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         <circle cx="7.6" cy="13.2" r="1" fill="white" />
+      </svg>
+    );
+  }
+
+  if (brand === "glm") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4.2 7.1 12 2.9l7.8 4.2v9.8L12 21.1l-7.8-4.2V7.1Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M7.4 8.1h9.2l-9.2 7.8h9.2M12 2.9v5.2M12 15.9v5.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (brand === "minimax") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M3.5 17.8V7.1l4.4 6.5L12 7.1l4.1 6.5 4.4-6.5v10.7" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4.1 19.9h15.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity=".58" />
       </svg>
     );
   }

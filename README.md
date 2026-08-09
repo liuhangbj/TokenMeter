@@ -22,10 +22,17 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 |------|------|---------|------|
 | OpenAI Codex | 订阅（5h/7d 额度） | OAuth / 本机 CLI | ✅ |
 | OpenAI Platform | 按量（花费 + token 用量） | Admin API Key | ✅ |
+| Claude | 订阅（5h/7d/Extra Usage） | OAuth / 本机 Claude Code | 🧪 待套餐账号实测 |
+| Anthropic API | 按量（成本 + token 用量） | Admin API Key | ✅ |
+| OpenRouter | 按量（Credits + Key 预算） | OAuth / API Key | ✅ |
 | Kimi Code | 订阅（5h/周/Extra Usage） | 设备码 OAuth / 本机 CLI | ✅ |
 | Moonshot | 按量余额 | API Key | ✅ |
 | DeepSeek | 按量余额 | API Key | ✅ |
-| 腾讯 TokenHub 按量 | 按量 token 用量 | SecretId/Key | ✅ |
+| GLM Coding Plan | 订阅（5h/周/MCP） | Coding Plan API Key | 🧪 待套餐账号实测 |
+| GLM API | 按量（现金 + 资源包） | API Key | ✅ |
+| MiniMax Token Plan | 订阅（多模态额度） | Subscription Key / 本机 CLI | 🧪 待套餐账号实测 |
+| MiniMax API | 按量余额 | API Key | ✅ |
+| 腾讯 TokenHub | Token Plan（按总量扣减） | SecretId/Key | ✅ |
 | 腾讯 Token Plan（个人版） | 订阅 | 无官方查询 API | 🔜 待官方开放 |
 | 腾讯 Coding Plan | 订阅 | 无官方 API | 🔜 待官方开放 |
 
@@ -33,12 +40,8 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 
 | 平台 | 备注 |
 |------|------|
-| Claude (Anthropic) | 订阅 + API 按量 |
 | Gemini (Google) | AI Studio API + Advanced 订阅 |
-| GLM (智谱) | bigmodel.cn API |
-| MiniMax | 海螺 API |
 | Ali Qwen (通义千问) | 阿里云百炼 API |
-| OpenRouter | 聚合网关余额 |
 | 豆包 (字节) | 火山引擎方舟 API |
 | 小米 MiMo | 小米大模型 API |
 

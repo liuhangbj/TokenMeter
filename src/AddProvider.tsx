@@ -28,13 +28,16 @@ function primaryAuthKind(spec: AuthSpec): AuthSpec["kind"] {
 
 function authFields(spec: AuthSpec): AuthField[] {
   if (spec.kind === "api_key" || spec.kind === "cloud_secret") return spec.fields;
-  if (spec.kind === "hybrid") return authFields(spec.primary);
+  if (spec.kind === "hybrid") {
+    const primary = authFields(spec.primary);
+    return primary.length > 0 ? primary : authFields(spec.fallback);
+  }
   return [];
 }
 
 function authHint(spec: AuthSpec): string | null {
   if (spec.kind === "api_key") return spec.hint;
-  if (spec.kind === "hybrid") return authHint(spec.primary);
+  if (spec.kind === "hybrid") return authHint(spec.primary) ?? authHint(spec.fallback);
   return null;
 }
 
@@ -134,6 +137,24 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
         error={error}
         success={success}
         onBack={() => setStep({ kind: "pick" })}
+        onImport={step.provider.supports_local_import ? async () => {
+          setBusy(true);
+          setError(null);
+          setSuccess(false);
+          try {
+            const imported = await invoke<boolean>("import_local_credential", {
+              providerId: step.provider.id,
+            });
+            if (!imported) {
+              throw new Error("未检测到可用的本机 CLI 或环境凭证");
+            }
+            setSuccess(true);
+            setTimeout(onDone, 800);
+          } catch (e) {
+            setError(String(e));
+            setBusy(false);
+          }
+        } : undefined}
         onSubmit={async (values) => {
           setBusy(true);
           setError(null);
@@ -160,6 +181,9 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
         provider={step.provider}
         onBack={() => setStep({ kind: "pick" })}
         onDone={onDone}
+        onManual={authFields(step.provider.auth_spec).length > 0
+          ? () => setStep({ kind: "form", provider: step.provider })
+          : undefined}
       />
     );
   }
@@ -248,13 +272,14 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
 }
 
 function ApiKeyForm({
-  provider, busy, error, success, onBack, onSubmit,
+  provider, busy, error, success, onBack, onImport, onSubmit,
 }: {
   provider: AddableProvider;
   busy: boolean;
   error: string | null;
   success: boolean;
   onBack: () => void;
+  onImport?: () => void;
   onSubmit: (values: Record<string, string>) => void;
 }) {
   const fields = authFields(provider.auth_spec);
@@ -304,36 +329,49 @@ function ApiKeyForm({
         >
           {success ? "已保存" : busy ? "正在验证…" : "保存并验证"}
         </button>
+        {onImport && (
+          <button
+            className="btn block secondary"
+            type="button"
+            disabled={busy || success}
+            onClick={onImport}
+          >
+            {busy ? "正在检测…" : "导入本机 CLI / 环境凭证"}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 function OAuthFlow({
-  provider, onBack, onDone,
+  provider, onBack, onDone, onManual,
 }: {
   provider: AddableProvider;
   onBack: () => void;
   onDone: () => void;
+  onManual?: () => void;
 }) {
   type Status =
     | { kind: "idle" }
     | { kind: "working"; note: string }
     | { kind: "device"; code: string; url: string; openError?: string }
+    | { kind: "manual_code"; sessionId: string; url: string; openError?: string }
     | { kind: "success" }
     | { kind: "error"; msg: string };
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [copied, setCopied] = useState(false);
+  const [authorizationCode, setAuthorizationCode] = useState("");
   const busy = status.kind === "working" || status.kind === "device";
 
   const openAuthPage = async (url: string) => {
     try {
       await openExternal(url);
-      setStatus((current) => current.kind === "device"
+      setStatus((current) => current.kind === "device" || current.kind === "manual_code"
         ? { ...current, openError: undefined }
         : current);
     } catch (error) {
-      setStatus((current) => current.kind === "device"
+      setStatus((current) => current.kind === "device" || current.kind === "manual_code"
         ? { ...current, openError: String(error) }
         : current);
     }
@@ -345,7 +383,7 @@ function OAuthFlow({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (error) {
-      setStatus((current) => current.kind === "device"
+      setStatus((current) => current.kind === "device" || current.kind === "manual_code"
         ? { ...current, openError: `复制失败，请手动选择下方地址：${String(error)}` }
         : current);
     }
@@ -359,7 +397,12 @@ function OAuthFlow({
         setStatus({ kind: "success" });
         setTimeout(onDone, 800);
       } else {
-        setStatus({ kind: "error", msg: "未检测到本机已登录的 CLI 凭证，请改用浏览器授权" });
+        setStatus({
+          kind: "error",
+          msg: provider.id === "openrouter"
+            ? "未检测到 OPENROUTER_API_KEY 环境变量，请改用浏览器授权或手动填写 API Key"
+            : "未检测到本机已登录的 CLI 凭证，请改用浏览器授权",
+        });
       }
     } catch (e) {
       setStatus({ kind: "error", msg: String(e) });
@@ -407,8 +450,66 @@ function OAuthFlow({
     }
   };
 
+  const startClaude = async () => {
+    setCopied(false);
+    setAuthorizationCode("");
+    setStatus({ kind: "working", note: "正在创建 Claude 授权会话…" });
+    try {
+      const start = await invoke<{ session_id: string; authorize_url: string }>(
+        "claude_oauth_start"
+      );
+      setStatus({ kind: "manual_code", sessionId: start.session_id, url: start.authorize_url });
+      await openAuthPage(start.authorize_url);
+    } catch (e) {
+      setStatus({ kind: "error", msg: String(e) });
+    }
+  };
+
+  const completeClaude = async (sessionId: string) => {
+    const code = authorizationCode.trim();
+    if (!code) {
+      setStatus({ kind: "error", msg: "请粘贴浏览器显示的 Claude 授权码" });
+      return;
+    }
+    setStatus({ kind: "working", note: "正在验证 Claude 授权码…" });
+    try {
+      await invoke("claude_oauth_complete", { sessionId, code });
+      setStatus({ kind: "success" });
+      setTimeout(onDone, 800);
+    } catch (e) {
+      setStatus({ kind: "error", msg: String(e) });
+    }
+  };
+
+  const startOpenRouter = async () => {
+    setCopied(false);
+    setStatus({ kind: "working", note: "正在创建 OpenRouter 授权会话…" });
+    try {
+      const start = await invoke<{ session_id: string; authorize_url: string }>(
+        "openrouter_oauth_start"
+      );
+      await openAuthPage(start.authorize_url);
+      setStatus({ kind: "working", note: "等待浏览器完成 OpenRouter 授权…" });
+      await invoke("openrouter_oauth_poll", { sessionId: start.session_id });
+      setStatus({ kind: "success" });
+      setTimeout(onDone, 800);
+    } catch (e) {
+      setStatus({ kind: "error", msg: String(e) });
+    }
+  };
+
   const isKimi = provider.id === "kimi_code";
   const isCodex = provider.id === "codex";
+  const isClaude = provider.id === "claude";
+  const isOpenRouter = provider.id === "openrouter";
+  const hasBrowserAuth = isKimi || isCodex || isClaude || isOpenRouter;
+  const startBrowserAuth = isKimi
+    ? startDevice
+    : isCodex
+      ? startCodex
+      : isClaude
+        ? startClaude
+        : startOpenRouter;
 
   return (
     <div className="wizard wizard-auth">
@@ -416,7 +517,9 @@ function OAuthFlow({
       <div className="wizard-main">
         <ProductIntro provider={provider} />
         <div className="oauth-copy">
-          可通过浏览器完成安全授权，也可以导入本机已经登录的 CLI 凭证。
+          {isOpenRouter
+            ? "推荐通过浏览器连接 OpenRouter，也可以导入本机环境凭证或手动填写 API Key。"
+            : "可通过浏览器完成安全授权，也可以导入本机已经登录的 CLI 凭证。"}
         </div>
 
         {status.kind === "device" && (
@@ -436,17 +539,51 @@ function OAuthFlow({
             </span>
           </div>
         )}
+        {status.kind === "manual_code" && (
+          <div className="manual-oauth">
+            <div className="auth-hint">
+              在浏览器完成 Claude 登录后，复制页面显示的完整授权码并粘贴到这里。
+            </div>
+            <label className="form-field">
+              <span className="form-label">授权码</span>
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="code#state"
+                value={authorizationCode}
+                onChange={(event) => setAuthorizationCode(event.target.value)}
+              />
+            </label>
+            {status.openError && (
+              <small className="device-open-error">浏览器未能自动打开，请重试或复制地址。</small>
+            )}
+            <span className="device-actions manual-code-actions">
+              <button type="button" onClick={() => openAuthPage(status.url)}>重新打开</button>
+              <button type="button" onClick={() => copyAuthUrl(status.url)}>
+                {copied ? "已复制" : "复制地址"}
+              </button>
+            </span>
+            <button
+              className="btn primary block"
+              type="button"
+              disabled={!authorizationCode.trim()}
+              onClick={() => completeClaude(status.sessionId)}
+            >
+              完成授权
+            </button>
+          </div>
+        )}
         {status.kind === "working" && <div className="form-status working">{status.note}</div>}
         {status.kind === "success" && <div className="form-status success">账户已添加，凭证已保存</div>}
         {status.kind === "error" && <div className="form-status error">{status.msg}</div>}
 
         <div className="oauth-actions">
-          {(isKimi || isCodex) && (
+          {hasBrowserAuth && (
             <button
               className="btn primary block"
               type="button"
               disabled={busy || status.kind === "success"}
-              onClick={isKimi ? startDevice : startCodex}
+              onClick={startBrowserAuth}
             >
               {busy ? "等待浏览器授权…" : "浏览器授权登录"}
             </button>
@@ -457,8 +594,18 @@ function OAuthFlow({
             disabled={busy || status.kind === "success"}
             onClick={tryImport}
           >
-            导入本机 CLI 凭证
+            {isOpenRouter ? "导入本机凭证" : "导入本机 CLI 凭证"}
           </button>
+          {onManual && (
+            <button
+              className="btn block secondary"
+              type="button"
+              disabled={busy || status.kind === "success"}
+              onClick={onManual}
+            >
+              手动填写 API Key
+            </button>
+          )}
         </div>
       </div>
     </div>

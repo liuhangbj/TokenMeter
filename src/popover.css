@@ -438,9 +438,31 @@ html[data-platform="windows"] .popover {
   color: var(--text-3);
   padding: 4px 0 2px;
 }
-.settings-update-btn {
-  width: 100%;
+.settings-update-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-top: 6px;
+}
+.settings-version {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 2px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.settings-version strong {
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.settings-update-btn {
+  width: auto;
+  min-width: 116px;
+  margin-top: 0;
   padding: 6px 0;
   border: 1px solid var(--border);
   background: var(--surface);

@@ -65,9 +65,23 @@ export function fmtMoney(amount: number, currency: string): string {
   return `${sym}${v}`;
 }
 
-/** token 数格式化：千分位整数 */
+/** Token / 请求数紧凑显示：1.25K、8M、4.2B；原始值仍用于计算。 */
 export function fmtTokens(n: number): string {
-  return Math.round(n).toLocaleString("en-US");
+  if (!Number.isFinite(n)) return "—";
+  const absolute = Math.abs(n);
+  if (absolute < 1_000) return Math.round(n).toLocaleString("en-US");
+
+  const units = [
+    { threshold: 1_000_000_000_000, suffix: "T" },
+    { threshold: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, suffix: "M" },
+    { threshold: 1_000, suffix: "K" },
+  ];
+  const unit = units.find(({ threshold }) => absolute >= threshold)!;
+  const scaled = n / unit.threshold;
+  const scaledAbsolute = Math.abs(scaled);
+  const maximumFractionDigits = scaledAbsolute >= 100 ? 0 : scaledAbsolute >= 10 ? 1 : 2;
+  return `${scaled.toLocaleString("en-US", { maximumFractionDigits })}${unit.suffix}`;
 }
 
 /** 后端品牌配置 → 支持明暗模式的 CSS 变量；新供应商无需新增 CSS 选择器。 */

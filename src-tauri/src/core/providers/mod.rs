@@ -1,15 +1,22 @@
 //! Provider 抽象层
 //!
-//! 把 8 个平台的差异收敛到统一的 `Provider` trait 与数据模型，
+//! 把各平台的差异收敛到统一的 `Provider` trait 与数据模型，
 //! UI 层与调度器不感知具体平台。新增平台只需实现 trait，
 //! 「添加供应商」表单由 `auth_spec()` 数据驱动自动渲染。
 #![allow(dead_code)] // Provider API surface; consumed by M2/M3 add-provider UI, not yet read in M1
 
+pub mod anthropic_api;
+pub mod claude;
 pub mod codex;
 pub mod deepseek;
+pub mod glm_api;
+pub mod glm_coding_plan;
 pub mod kimi_code;
+pub mod minimax_api;
+pub mod minimax_token_plan;
 pub mod moonshot;
 pub mod openai_platform;
+pub mod openrouter;
 pub mod presentation;
 pub mod tencent;
 pub mod tencent_coding_plan;
@@ -119,10 +126,14 @@ pub struct ProviderSnapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Brand {
+    Anthropic,
     OpenAI,
+    OpenRouter,
     Kimi,
     Moonshot,
     DeepSeek,
+    Glm,
+    MiniMax,
     Tencent,
 }
 
@@ -130,18 +141,26 @@ pub enum Brand {
 /// Brand 用于具体产品卡片配色；Vendor 用于把同一厂商的 Plan / API 入口归在一起。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Vendor {
+    Anthropic,
     OpenAI,
+    OpenRouter,
     Moonshot,
     DeepSeek,
+    Glm,
+    MiniMax,
     Tencent,
 }
 
 impl Brand {
     pub fn vendor(self) -> Vendor {
         match self {
+            Brand::Anthropic => Vendor::Anthropic,
             Brand::OpenAI => Vendor::OpenAI,
+            Brand::OpenRouter => Vendor::OpenRouter,
             Brand::Kimi | Brand::Moonshot => Vendor::Moonshot,
             Brand::DeepSeek => Vendor::DeepSeek,
+            Brand::Glm => Vendor::Glm,
+            Brand::MiniMax => Vendor::MiniMax,
             Brand::Tencent => Vendor::Tencent,
         }
     }
@@ -150,18 +169,26 @@ impl Brand {
 impl Vendor {
     pub fn id(self) -> &'static str {
         match self {
+            Vendor::Anthropic => "anthropic",
             Vendor::OpenAI => "openai",
+            Vendor::OpenRouter => "openrouter",
             Vendor::Moonshot => "moonshot",
             Vendor::DeepSeek => "deepseek",
+            Vendor::Glm => "glm",
+            Vendor::MiniMax => "minimax",
             Vendor::Tencent => "tencent",
         }
     }
 
     pub fn display_name(self) -> &'static str {
         match self {
+            Vendor::Anthropic => "Anthropic",
             Vendor::OpenAI => "OpenAI",
+            Vendor::OpenRouter => "OpenRouter",
             Vendor::Moonshot => "Moonshot",
             Vendor::DeepSeek => "DeepSeek",
+            Vendor::Glm => "GLM",
+            Vendor::MiniMax => "MiniMax",
             Vendor::Tencent => "腾讯云",
         }
     }
@@ -169,9 +196,13 @@ impl Vendor {
     /// 厂商栏目使用统一图标；Moonshot 采用用户更熟悉的 Kimi 标识。
     pub fn brand(self) -> Brand {
         match self {
+            Vendor::Anthropic => Brand::Anthropic,
             Vendor::OpenAI => Brand::OpenAI,
+            Vendor::OpenRouter => Brand::OpenRouter,
             Vendor::Moonshot => Brand::Kimi,
             Vendor::DeepSeek => Brand::DeepSeek,
+            Vendor::Glm => Brand::Glm,
+            Vendor::MiniMax => Brand::MiniMax,
             Vendor::Tencent => Brand::Tencent,
         }
     }
@@ -179,9 +210,13 @@ impl Vendor {
     pub fn order(self) -> u8 {
         match self {
             Vendor::OpenAI => 0,
-            Vendor::Moonshot => 1,
-            Vendor::DeepSeek => 2,
-            Vendor::Tencent => 3,
+            Vendor::Anthropic => 1,
+            Vendor::OpenRouter => 2,
+            Vendor::Moonshot => 3,
+            Vendor::DeepSeek => 4,
+            Vendor::Glm => 5,
+            Vendor::MiniMax => 6,
+            Vendor::Tencent => 7,
         }
     }
 }
@@ -325,6 +360,12 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// 添加表单是否应展示“一键导入本机凭证”。与认证类型分离：
+    /// API Key 型产品也可能有官方 CLI / 桌面端凭证可复用。
+    fn supports_local_import(&self) -> bool {
+        false
+    }
+
     async fn authenticate(&self, _input: AuthInput) -> anyhow::Result<Credential> {
         anyhow::bail!("该 provider 暂不支持手动认证（请使用 detect_local 或 OAuth）")
     }
@@ -336,14 +377,21 @@ pub trait Provider: Send + Sync {
     async fn fetch(&self, cred: &Credential) -> anyhow::Result<ProviderSnapshot>;
 }
 
-/// 全部 8 个 provider 的注册表（M1 注册，M2/M3/M5 分批实现）
+/// 全部 provider 的注册表。添加界面与调度器都从这里取得实现。
 pub fn registry() -> Vec<Arc<dyn Provider>> {
     vec![
+        Arc::new(claude::ClaudeProvider::new()),
+        Arc::new(anthropic_api::AnthropicApiProvider::new()),
         Arc::new(moonshot::MoonshotProvider::new()),
         Arc::new(deepseek::DeepSeekProvider::new()),
+        Arc::new(glm_coding_plan::GlmCodingPlanProvider::new()),
+        Arc::new(glm_api::GlmApiProvider::new()),
+        Arc::new(minimax_token_plan::MiniMaxTokenPlanProvider::new()),
+        Arc::new(minimax_api::MiniMaxApiProvider::new()),
         Arc::new(tencent_token_plan::TencentTokenPlanProvider::new()),
         Arc::new(tencent_tokenhub::TencentTokenHubProvider::new()),
         Arc::new(openai_platform::OpenAiPlatformProvider::new()),
+        Arc::new(openrouter::OpenRouterProvider::new()),
         Arc::new(codex::CodexProvider::new()),
         Arc::new(kimi_code::KimiCodeProvider::new()),
         Arc::new(tencent_coding_plan::TencentCodingPlanProvider::new()),

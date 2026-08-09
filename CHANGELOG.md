@@ -1,5 +1,23 @@
 # 更新记录
 
+## v0.9.6（2026-08-09）
+
+### 新供应商
+
+- 新增 Claude 套餐浏览器 OAuth 与本机 Claude Code 凭证导入，支持套餐、额度窗口与 Extra Usage
+- 新增 Anthropic API：通过 Admin API Key 查询组织月度成本、输入/输出 Token、缓存与 Web Search 用量
+- 新增 OpenRouter OAuth / API Key 双入口，显示 Credits 余额、Key 预算与周期花费
+- 新增 GLM Coding Plan，以及 GLM API 现金余额、今日花费与 Token/次数资源包
+- 新增 MiniMax Token Plan，以及 MiniMax API 国际/国内站现金、代金券、Credit 与欠款余额
+
+### 界面与契约
+
+- Anthropic、GLM、MiniMax 等厂商统一按 Plan / API 双产品折叠展示，默认收起
+- API Key 产品可声明本机 CLI / 环境凭证导入，不再与 OAuth 类型绑定
+- 套餐主值统一显示剩余百分比；无余额 API 账户以本月花费作为主值
+- Token 与请求数使用 K/M/B/T 紧凑格式，GLM 资源包按官方余额字段和 Token/次数单位展示
+- 设置面板的检查更新区域增加当前版本号
+
 ## v0.9.5（2026-08-09）
 
 - 修复 Windows 纯托盘模式下 Codex/Kimi 授权页无法打开；改由后端 ShellExecuteW 调用默认浏览器
