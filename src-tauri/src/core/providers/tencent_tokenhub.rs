@@ -36,6 +36,20 @@ impl Provider for TencentTokenHubProvider {
     fn billing_mode(&self) -> BillingMode {
         BillingMode::PayAsYouGo
     }
+    fn add_account_type(&self) -> AddAccountType {
+        // TokenHub 套餐按月购买 Token 总量；使用 SecretId/Key 只是认证方式，
+        // 不应因此在添加界面归类为 API 按量账户。
+        AddAccountType::Plan
+    }
+    fn add_product_name(&self) -> &'static str {
+        "TokenHub Token 套餐"
+    }
+    fn add_description(&self) -> &'static str {
+        "月度 Token 总量"
+    }
+    fn detail_url(&self) -> Option<&'static str> {
+        Some("https://console.cloud.tencent.com/tokenhub")
+    }
     fn auth_spec(&self) -> AuthSpec {
         AuthSpec::CloudSecret {
             fields: vec![
@@ -71,10 +85,13 @@ impl Provider for TencentTokenHubProvider {
             .ok_or_else(|| anyhow::anyhow!("缺少 secret_key"))?;
 
         let client = super::http_client();
+        let now = Utc::now();
+        let start_time = (now - chrono::Duration::days(30)).to_rfc3339();
+        let end_time = now.to_rfc3339();
 
-        // Token 用量
+        // Token 用量：按 API Key 维度拿整段汇总，同时保留输入/输出/缓存分项。
         let usage = tencent::tencent_post(
-            &client,
+            client,
             "tokenhub",
             "tokenhub.tencentcloudapi.com",
             "DescribeUsageRankList",
@@ -82,40 +99,48 @@ impl Provider for TencentTokenHubProvider {
             sid,
             skey,
             None,
-            &json!({ "Dimension": "apikey", "MetricType": "tokens" }),
+            &json!({
+                "Dimension": "apikey",
+                "MetricType": "tokens",
+                "StartTime": start_time,
+                "EndTime": end_time,
+                "Period": 86400,
+                "ShowAll": true,
+            }),
         )
         .await?;
         let usage_resp = usage.get("Response").cloned().unwrap_or(Value::Null);
-        let total_token = usage_resp
-            .get("TotalToken")
-            .and_then(tencent::value_num)
-            .or_else(|| {
-                usage_resp
-                    .get("TotalStats")
-                    .and_then(|t| t.get("TotalToken"))
-                    .and_then(tencent::value_num)
-            });
+        let usage_stats = usage_resp.get("TotalStats").unwrap_or(&usage_resp);
+        let total_token = usage_stats.get("TotalToken").and_then(tencent::value_num);
         let mut fidelity = Fidelity::Exact;
         let mut windows = vec![];
-        if let Some(t) = total_token {
-            windows.push(QuotaWindow {
-                period: WindowPeriod::Month,
-                label: "本月 Token".into(),
-                used: None, // 无上限，前端按 used_raw + Tokens 单位展示
-                used_raw: Some(t),
-                limit: None,
-                remaining: None,
-                unit: QuotaUnit::Tokens,
-                reset_at: None,
-            });
-        } else {
-            log::warn!("TokenHub DescribeUsageRankList 未返回 TotalToken（字段路径待校准），本次用量缺失");
+        for (key, label) in [
+            ("TotalToken", "近 30 天 Token"),
+            ("InputTotalToken", "输入 Token"),
+            ("OutputTotalToken", "输出 Token"),
+            ("CacheTotalToken", "缓存命中 Token"),
+        ] {
+            if let Some(value) = usage_stats.get(key).and_then(tencent::value_num) {
+                windows.push(QuotaWindow {
+                    period: WindowPeriod::Month,
+                    label: label.into(),
+                    used: None,
+                    used_raw: Some(value),
+                    limit: None,
+                    remaining: None,
+                    unit: QuotaUnit::Tokens,
+                    reset_at: None,
+                });
+            }
+        }
+        if total_token.is_none() {
+            log::warn!("TokenHub DescribeUsageRankList 未返回 TotalStats.TotalToken，本次用量缺失");
             fidelity = Fidelity::Partial;
         }
 
         // 账户余额
         let bal = tencent::tencent_post(
-            &client,
+            client,
             "billing",
             "billing.tencentcloudapi.com",
             "DescribeAccountBalance",
@@ -127,22 +152,34 @@ impl Provider for TencentTokenHubProvider {
         )
         .await?;
         let bal_resp = bal.get("Response").cloned().unwrap_or(Value::Null);
-        // 真实字段可能为 Balance / RealBalance，防御式解析
-        let balance_total = bal_resp
+        let account_label = bal_resp
+            .get("Uin")
+            .and_then(tencent::value_num)
+            .map(|uin| format!("UIN {:.0}", uin));
+        // 腾讯云余额接口单位为分，统一换算为元再进入 UI。
+        let balance_total_cents = bal_resp
             .get("Balance")
             .and_then(tencent::value_num)
             .or_else(|| bal_resp.get("RealBalance").and_then(tencent::value_num));
+        let cash_balance = bal_resp
+            .get("CashAccountBalance")
+            .and_then(tencent::value_num)
+            .map(|value| value / 100.0);
+        let present_balance = bal_resp
+            .get("PresentAccountBalance")
+            .and_then(tencent::value_num)
+            .map(|value| value / 100.0);
 
-        let (balance, status) = match balance_total {
-            Some(v) => (
+        let (balance, status) = match balance_total_cents.map(|value| value / 100.0) {
+            Some(value) => (
                 Some(Balance {
-                    total: v,
-                    granted: None,
-                    topped_up: None,
+                    total: value,
+                    granted: present_balance,
+                    topped_up: cash_balance,
                     currency: "CNY".into(),
-                    available: v > 0.0,
+                    available: value > 0.0,
                 }),
-                if v > 0.0 {
+                if value > 0.0 {
                     HealthStatus::Ok
                 } else {
                     HealthStatus::Exhausted
@@ -156,6 +193,8 @@ impl Provider for TencentTokenHubProvider {
         };
 
         Ok(ProviderSnapshot {
+            account_id: String::new(),
+            account_label,
             provider_id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             plan_name: None,

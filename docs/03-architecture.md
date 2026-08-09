@@ -90,7 +90,9 @@ pub struct ProviderSnapshot {
 }
 ```
 
-**关键设计**：`windows` 是数组而非固定字段。订阅制填 5h / 周 / 月，按量制填日 / 周 / 月消耗统计。同一套渲染逻辑通吃。
+**关键设计**：`ProviderSnapshot` 是平台无关领域数据，不直接交给 UI。Provider
+再通过 `card_config()` 与 `plan_tier()` 映射为 `AccountCardModel`；前端只渲染
+`quota` 和 `balance` 两类明细，详见 [Provider 卡片标准契约](05-provider-card-contract.md)。
 
 ---
 
@@ -103,6 +105,9 @@ pub trait Provider: Send + Sync {
     fn display_name(&self) -> &'static str;
     fn brand(&self) -> Brand;
     fn billing_mode(&self) -> BillingMode;
+    fn detail_url(&self) -> Option<&'static str>;
+    fn card_config(&self) -> CardConfig;
+    fn plan_tier(&self, plan_name: &str) -> Option<u8>;
 
     /// 驱动「添加供应商」表单的动态渲染
     fn auth_spec(&self) -> AuthSpec;
@@ -300,7 +305,7 @@ OpenAI          Kimi              DeepSeek        腾讯云
 TokenMeter/
 ├── src/                        # 前端 TS
 │   ├── components/
-│   │   ├── ProviderCard.tsx
+│   │   ├── ProviderCard.tsx      # 标准 AccountCardModel 渲染器
 │   │   ├── QuotaBar.tsx
 │   │   └── AddProviderWizard/
 │   ├── stores/
@@ -316,6 +321,7 @@ TokenMeter/
 │   │   ├── diff.rs             # 余额差分
 │   │   └── providers/
 │   │       ├── mod.rs          # trait 定义
+│   │       ├── presentation.rs # 快照 → 标准卡片契约
 │   │       ├── codex.rs
 │   │       ├── openai_platform.rs
 │   │       ├── kimi_code.rs

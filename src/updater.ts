@@ -1,5 +1,5 @@
-// 自动更新封装：启动静默检查 + 自动下载 + 一键重启
-import { check, type Update } from "@tauri-apps/plugin-updater";
+// 自动更新封装：启动静默检查 + 仅下载 + 用户确认后安装重启
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export type UpdateState =
@@ -48,46 +48,61 @@ export async function checkForUpdate(): Promise<void> {
   }
 }
 
-/// 下载新版（不重启）
-export async function download(): Promise<void> {
+function onDownloadEvent(event: DownloadEvent) {
+  if (event.event === "Started") {
+    downloadTotal = event.data.contentLength ?? 0;
+    downloadedBytes = 0;
+    setState({ kind: "downloading", percent: 0 });
+  } else if (event.event === "Progress") {
+    downloadedBytes += event.data.chunkLength;
+    const percent = downloadTotal > 0 ? Math.round((downloadedBytes / downloadTotal) * 100) : 0;
+    setState({ kind: "downloading", percent });
+  }
+}
+
+let downloadedBytes = 0;
+let downloadTotal = 0;
+
+/// 只下载新版，不安装、不退出应用。Windows 与 macOS 都在用户确认后才安装。
+export async function download(): Promise<boolean> {
+  if (!pending) return false;
+  try {
+    await pending.download(onDownloadEvent);
+    setState({ kind: "ready" });
+    return true;
+  } catch (e) {
+    setState({ kind: "error", message: String(e) });
+    return false;
+  }
+}
+
+/// 用户确认后安装并重启。Windows 安装器可能在 install() 内主动结束进程；
+/// 若 install() 正常返回（macOS 等），再显式重启加载新版本。
+export async function installAndRelaunch(): Promise<void> {
   if (!pending) return;
   try {
-    let downloaded = 0;
-    let total = 0;
-    await pending.downloadAndInstall((event) => {
-      if (event.event === "Started") {
-        total = event.data.contentLength ?? 0;
-        setState({ kind: "downloading", percent: 0 });
-      } else if (event.event === "Progress") {
-        downloaded += event.data.chunkLength;
-        const percent = total > 0 ? Math.round((downloaded / total) * 100) : 0;
-        setState({ kind: "downloading", percent });
-      } else if (event.event === "Finished") {
-        setState({ kind: "ready" });
-      }
-    });
+    await pending.install();
+    await relaunch();
   } catch (e) {
     setState({ kind: "error", message: String(e) });
   }
 }
 
-/// 重启并完成安装（用户确认后调用）
-export async function relaunchToInstall(): Promise<void> {
-  await relaunch();
-}
-
 /// 启动时自动检查：有新版 → 后台自动下载到 ready（不打扰；重启由用户确认）
-export async function autoCheckOnLaunch(): Promise<void> {
+export async function autoCheckOnLaunch(): Promise<boolean> {
   try {
     const update = await check();
     if (update) {
       pending = update;
       setState({ kind: "available", version: update.version });
-      await download();
+      if (!await download()) return false;
     } else {
       setState({ kind: "none" });
     }
+    return true;
   } catch (e) {
     console.warn("auto update check failed:", e);
+    setState({ kind: "error", message: String(e) });
+    return false;
   }
 }

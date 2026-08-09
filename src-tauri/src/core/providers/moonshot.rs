@@ -47,6 +47,21 @@ impl Provider for MoonshotProvider {
     fn billing_mode(&self) -> BillingMode {
         BillingMode::PayAsYouGo
     }
+    fn add_description(&self) -> &'static str {
+        "按量余额"
+    }
+    fn detail_url(&self) -> Option<&'static str> {
+        Some("https://platform.moonshot.cn/console/account")
+    }
+    fn card_config(&self) -> presentation::CardConfig {
+        let mut config = presentation::CardConfig::for_billing(self.billing_mode());
+        config.detail_url = self.detail_url();
+        config.balance_role = presentation::BalanceRole::Primary {
+            topped_up_label: "现金余额",
+            granted_label: "代金券余额",
+        };
+        config
+    }
     fn auth_spec(&self) -> AuthSpec {
         AuthSpec::ApiKey {
             fields: vec![
@@ -79,7 +94,11 @@ impl Provider for MoonshotProvider {
             .get("api_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("缺少 api_key"))?;
-        let region = cred.data.get("region").and_then(|v| v.as_str()).unwrap_or("cn");
+        let region = cred
+            .data
+            .get("region")
+            .and_then(|v| v.as_str())
+            .unwrap_or("cn");
         let (base, currency) = if region == "intl" {
             ("https://api.moonshot.ai", "USD")
         } else {
@@ -101,6 +120,8 @@ impl Provider for MoonshotProvider {
         }
 
         Ok(ProviderSnapshot {
+            account_id: String::new(),
+            account_label: None,
             provider_id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             plan_name: None,
@@ -114,7 +135,11 @@ impl Provider for MoonshotProvider {
             }),
             windows: vec![], // 无用量接口；不做消耗统计，仅实时余额
             fidelity: Fidelity::Exact,
-            status: HealthStatus::Ok,
+            status: if resp.data.available_balance > 0.0 {
+                HealthStatus::Ok
+            } else {
+                HealthStatus::Exhausted
+            },
             fetched_at: Utc::now().timestamp(),
             last_error: None,
         })

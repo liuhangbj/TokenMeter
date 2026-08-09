@@ -28,6 +28,7 @@ INSTALL_SYSTEM=0
 ISOLATE=0
 PID_FILE="/tmp/tokenmeter-dev.pid"
 LOG_FILE="/tmp/tokenmeter-dev.log"
+DATA_DIR="$HOME/Library/Application Support/TokenMeter-Dev"
 
 say()  { printf '\033[1;34m%s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m%s\033[0m\n' "$*" >&2; }

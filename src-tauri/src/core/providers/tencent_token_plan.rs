@@ -40,6 +40,12 @@ impl Provider for TencentTokenPlanProvider {
     fn billing_mode(&self) -> BillingMode {
         BillingMode::Subscription
     }
+    fn add_product_name(&self) -> &'static str {
+        "Token Plan"
+    }
+    fn detail_url(&self) -> Option<&'static str> {
+        Some("https://console.cloud.tencent.com/tokenhub/token-plan")
+    }
     /// 个人版无官方查询 API（2026-08-02 实测），隐藏「添加供应商」入口。
     /// 企业版代码保留，未来官方开放个人版 API 时改回 true 即恢复。
     fn enabled(&self) -> bool {
@@ -81,7 +87,7 @@ impl Provider for TencentTokenPlanProvider {
 
         let client = super::http_client();
         let list = tencent::tencent_post(
-            &client,
+            client,
             "tokenhub",
             "tokenhub.tencentcloudapi.com",
             "DescribeTokenPlanList",
@@ -107,7 +113,7 @@ impl Provider for TencentTokenPlanProvider {
             .ok_or_else(|| anyhow::anyhow!("无法解析 TeamId（API 字段待实测）"))?;
 
         let detail = tencent::tencent_post(
-            &client,
+            client,
             "tokenhub",
             "tokenhub.tencentcloudapi.com",
             "DescribeTokenPlan",
@@ -120,8 +126,14 @@ impl Provider for TencentTokenPlanProvider {
         .await?;
 
         let resp = detail.get("Response").cloned().unwrap_or(Value::Null);
-        let plan_name = resp.get("Name").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let stop_reason = resp.get("StopReason").and_then(|v| v.as_str()).unwrap_or("NORMAL");
+        let plan_name = resp
+            .get("Name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let stop_reason = resp
+            .get("StopReason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("NORMAL");
         let status = match stop_reason {
             "EXHAUSTED" => HealthStatus::Exhausted,
             "FROZEN" | "ISOLATED" | "DESTROYED" => HealthStatus::AuthExpired,
@@ -136,14 +148,11 @@ impl Provider for TencentTokenPlanProvider {
                     .and_then(|q| q.get("Remaining"))
                     .and_then(tencent::value_num)
             });
-        let limit = resp
-            .get("Total")
-            .and_then(tencent::value_num)
-            .or_else(|| {
-                resp.get("Quota")
-                    .and_then(|q| q.get("Total"))
-                    .and_then(tencent::value_num)
-            });
+        let limit = resp.get("Total").and_then(tencent::value_num).or_else(|| {
+            resp.get("Quota")
+                .and_then(|q| q.get("Total"))
+                .and_then(tencent::value_num)
+        });
 
         let mut windows = vec![];
         if let (Some(rem), Some(lim)) = (remaining, limit) {
@@ -166,6 +175,8 @@ impl Provider for TencentTokenPlanProvider {
         }
 
         Ok(ProviderSnapshot {
+            account_id: String::new(),
+            account_label: None,
             provider_id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             plan_name,

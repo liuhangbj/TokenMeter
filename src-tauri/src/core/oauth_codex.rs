@@ -6,6 +6,7 @@
 //!   2. 打开 `{issuer}/codex/device` 让用户输入 user_code 完成授权
 //!   3. 轮询 `POST {issuer}/api/accounts/deviceauth/token`（403/404 表示未完成）
 //!   4. 用返回的 authorization_code + code_verifier 在 `{issuer}/oauth/token` 换 token
+//!
 //! 端点/字段来源：github.com/openai/codex codex-rs/login/src/device_code_auth.rs
 
 use anyhow::{anyhow, Result};
@@ -170,29 +171,72 @@ async fn exchange_tokens(code: &CodeSuccessResp) -> Result<serde_json::Value> {
         .get("access_token")
         .and_then(|x| x.as_str())
         .ok_or_else(|| anyhow!("换 token 响应缺少 access_token"))?;
-    let account_id = v
-        .get("id_token")
-        .and_then(|x| x.as_str())
-        .and_then(extract_account_id)
-        .unwrap_or_default();
+    let id_token = v.get("id_token").and_then(|x| x.as_str()).unwrap_or("");
+    let identity = extract_identity(id_token).unwrap_or_default();
 
     Ok(json!({
         "access_token": access,
         "refresh_token": v.get("refresh_token").and_then(|x| x.as_str()).unwrap_or(""),
-        "account_id": account_id,
+        "id_token": id_token,
+        "account_id": identity.account_id,
+        "account_label": identity.account_label,
     }))
 }
 
-/// 从 id_token (JWT) 的 payload 解出 chatgpt_account_id。
-fn extract_account_id(id_token: &str) -> Option<String> {
+#[derive(Debug, Default)]
+pub(crate) struct CodexIdentity {
+    pub account_id: String,
+    /// 用户名/姓名优先，其次邮箱，最后使用平台用户 ID。
+    pub account_label: Option<String>,
+}
+
+/// 从 id_token (JWT) payload 解出 chatgpt_account_id 与可展示身份。
+pub(crate) fn extract_identity(id_token: &str) -> Option<CodexIdentity> {
     let payload_b64 = id_token.split('.').nth(1)?;
     let payload = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-    v.get("chatgpt_account_id")
-        .or_else(|| v.get("https://api.openai.com/auth").and_then(|a| a.get("chatgpt_account_id")))
+    let account_id = v
+        .get("chatgpt_account_id")
+        .or_else(|| {
+            v.get("https://api.openai.com/auth")
+                .and_then(|a| a.get("chatgpt_account_id"))
+        })
         .or_else(|| v.get("account_id"))
         .and_then(|x| x.as_str())
-        .map(|s| s.to_string())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_default();
+    let auth = v.get("https://api.openai.com/auth");
+    let account_label = ["preferred_username", "username", "name"]
+        .into_iter()
+        .find_map(|key| v.get(key).and_then(|value| value.as_str()))
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            v.get("email")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            auth.and_then(|value| value.get("user_id"))
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            v.get("user_id")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            v.get("sub")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| (!account_id.is_empty()).then_some(account_id.as_str()))
+        .map(str::to_string);
+    Some(CodexIdentity {
+        account_id,
+        account_label,
+    })
 }
 
 /// 极简 RFC3986 百分号编码（表单参数用）。
@@ -213,4 +257,37 @@ fn urlencode(s: &str) -> String {
 #[allow(dead_code)]
 fn _keep_chrono() -> i64 {
     Utc::now().timestamp()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_prefers_username_then_email_then_id() {
+        let payload = URL_SAFE_NO_PAD
+            .encode(br#"{"email":"ada@example.com","name":"Ada","chatgpt_account_id":"acct_123"}"#);
+        let token = format!("header.{payload}.signature");
+        let identity = extract_identity(&token).expect("应解析 JWT payload");
+
+        assert_eq!(identity.account_id, "acct_123");
+        assert_eq!(identity.account_label.as_deref(), Some("Ada"));
+
+        let email_payload = URL_SAFE_NO_PAD
+            .encode(br#"{"email":"ada@example.com","chatgpt_account_id":"acct_123"}"#);
+        let email_token = format!("header.{email_payload}.signature");
+        assert_eq!(
+            extract_identity(&email_token).and_then(|value| value.account_label),
+            Some("ada@example.com".to_string())
+        );
+
+        let id_payload = URL_SAFE_NO_PAD.encode(
+            br#"{"https://api.openai.com/auth":{"user_id":"user_123","chatgpt_account_id":"acct_123"}}"#,
+        );
+        let id_token = format!("header.{id_payload}.signature");
+        assert_eq!(
+            extract_identity(&id_token).and_then(|value| value.account_label),
+            Some("user_123".to_string())
+        );
+    }
 }

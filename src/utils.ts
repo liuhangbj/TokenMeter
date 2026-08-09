@@ -1,6 +1,8 @@
-// 工具函数 —— 5 段警示色、时间格式化、品牌/状态映射
+// 工具函数 —— 5 段警示色、时间格式化与标准品牌样式
 
-import type { HealthStatus, Fidelity } from "./types";
+import type { CSSProperties } from "react";
+import type { BrandStyle } from "./types";
+import type { HealthStatus } from "./types";
 
 /** 5 段用量等级（1-5）。hasCap=false 表示无上限（余额/成本型），返回 0 走品牌色。 */
 export function usageLevel(pct: number | null, hasCap: boolean): number {
@@ -30,13 +32,6 @@ export function statusDotClass(status: HealthStatus, maxLv: number): string {
     default:
       return maxLv >= 1 ? `lv${maxLv}` : "lv1";
   }
-}
-
-/** 可信度点 */
-export function fidMeta(f: Fidelity): [string, string] {
-  if (f === "Exact") return ["exact", "官方接口"];
-  if (f === "Estimated") return ["est", "推算/非官方来源"];
-  return ["partial", "部分维度缺失"];
 }
 
 /** Unix 秒 → "X 天/X 小时/X 分钟后重置" */
@@ -75,31 +70,12 @@ export function fmtTokens(n: number): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
-/** provider_id → 品牌 data-attribute（决定品牌色） */
-export function brandOf(providerId: string): string {
-  if (providerId.startsWith("codex") || providerId.startsWith("openai")) return "openai";
-  if (providerId.startsWith("kimi")) return "kimi";
-  if (providerId.startsWith("moonshot")) return "moonshot";
-  if (providerId.startsWith("deepseek")) return "deepseek";
-  if (providerId.startsWith("tencent")) return "tencent";
-  return "openai";
-}
-
-/** 官方控制台链接（"查看详情↗"跳转） */
-export function consoleUrl(providerId: string): string | null {
-  switch (providerId) {
-    // 官方 Codex CLI 的用量页地址（2026-08-03 从 ChatGPT.app 内确认）
-    case "codex": return "https://chatgpt.com/codex/settings/usage";
-    case "openai_platform": return "https://platform.openai.com/usage";
-    case "kimi_code": return "https://www.kimi.com/membership/subscription";
-    // 2026-08-02 实测：Moonshot 控制台已并入 kimi 平台，moonshot 域名自动跳转对应区域
-    // 国内 platform.moonshot.cn→platform.kimi.com、国际 platform.moonshot.ai→platform.kimi.ai。
-    // 用 moonshot 官方域名 /console/account（自动跳对区域）；当前默认国内站。
-    case "moonshot": return "https://platform.moonshot.cn/console/account";
-    case "deepseek": return "https://platform.deepseek.com/usage";
-    case "tencent_tokenhub": return "https://console.cloud.tencent.com/tokenhub";
-    case "tencent_token_plan": return "https://console.cloud.tencent.com/tokenhub/token-plan";
-    case "tencent_coding_plan": return "https://cloud.tencent.com/product/codingplan";
-    default: return null;
-  }
+/** 后端品牌配置 → 支持明暗模式的 CSS 变量；新供应商无需新增 CSS 选择器。 */
+export function brandStyleVars(brand: BrandStyle): CSSProperties {
+  return {
+    "--brand-accent-light": brand.accent_light,
+    "--brand-accent-alt-light": brand.accent_alt_light,
+    "--brand-accent-dark": brand.accent_dark,
+    "--brand-accent-alt-dark": brand.accent_alt_dark,
+  } as CSSProperties;
 }

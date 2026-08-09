@@ -87,12 +87,12 @@ scripts/dev-deploy.sh --isolate     # 独立数据目录，不影响正式版凭
 ```text
 src/                         # UI 层：React + TypeScript（平台无关）
 ├── App.tsx                  # 托盘面板（单窗口，含内嵌添加供应商向导）
-├── ProviderCard.tsx         # 平台卡片
+├── ProviderCard.tsx         # 标准卡片渲染器（无供应商分支）
 └── SettingsPanel.tsx        # 设置面板
 
 src-tauri/src/
 ├── core/                    # Core 层：平台无关核心（不依赖 Tauri）
-│   ├── providers/           # 8 平台 provider（统一 Provider trait）
+│   ├── providers/           # Provider trait + 字段/套餐/卡片映射
 │   ├── store.rs             # AES-256-GCM 加密凭证存储
 │   ├── scheduler.rs         # 定时/触发刷新（并发 + 失败可见）
 │   ├── scheduler_ctl.rs     # 刷新间隔广播 + 立即刷新信号

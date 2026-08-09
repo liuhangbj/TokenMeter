@@ -4,8 +4,10 @@
 //! 设置写入数据目录下的 settings.json（与凭证同目录，卸载随 App 走），
 //! 0600 权限。开机启动的系统级副作用由 platform/commands 层负责。
 
-use crate::core::store::{data_dir, write_private};
+use crate::core::store::{data_dir, ensure_private_permissions, write_private};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// 默认后台刷新间隔：5 分钟
 pub const DEFAULT_INTERVAL_SECS: u64 = 300;
@@ -19,6 +21,9 @@ pub struct Settings {
     /// 卡片排序（provider_id 数组）。空表示按默认（紧张度）排序。
     #[serde(default)]
     pub card_order: Vec<String>,
+    /// 账号昵称：key 为账号实例 ID。空/缺失时，前端回退到平台返回的邮箱或 ID。
+    #[serde(default)]
+    pub account_nicknames: HashMap<String, String>,
 }
 
 impl Default for Settings {
@@ -27,6 +32,7 @@ impl Default for Settings {
             launch_at_login: false,
             refresh_interval_secs: DEFAULT_INTERVAL_SECS,
             card_order: Vec::new(),
+            account_nicknames: HashMap::new(),
         }
     }
 }
@@ -35,15 +41,25 @@ fn settings_path() -> anyhow::Result<std::path::PathBuf> {
     Ok(data_dir()?.join("settings.json"))
 }
 
-/// 读取设置（不存在或损坏则返回默认）。
+/// 严格读取设置。修改设置前必须走这个入口，避免损坏文件被默认值覆盖。
+pub fn load_strict() -> anyhow::Result<Settings> {
+    let p = settings_path()?;
+    if !p.exists() {
+        return Ok(Settings::default());
+    }
+    ensure_private_permissions(&p)?;
+    let json = std::fs::read_to_string(&p)?;
+    serde_json::from_str(&json)
+        .with_context(|| format!("设置文件 {} 已损坏，原文件保持不变", p.display()))
+}
+
+/// 启动读取设置。损坏时允许应用以默认值继续启动，但后续保存仍会由
+/// `load_strict` 拦截，不会覆盖原文件。
 pub fn load() -> Settings {
-    let Ok(p) = settings_path() else {
-        return Settings::default();
-    };
-    std::fs::read_to_string(p)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    load_strict().unwrap_or_else(|error| {
+        log::error!("读取设置失败，将使用默认值启动: {error:#}");
+        Settings::default()
+    })
 }
 
 /// 保存设置（0600 权限写文件）。
@@ -51,4 +67,45 @@ pub fn save(settings: &Settings) -> anyhow::Result<()> {
     let p = settings_path()?;
     let json = serde_json::to_string_pretty(settings)?;
     write_private(&p, json.as_bytes())
+}
+
+/// 删除账号后同步清理排序与昵称引用，避免重新添加时复用陈旧设置。
+pub fn remove_account_references(settings: &mut Settings, account_id: &str) {
+    settings.card_order.retain(|id| id != account_id);
+    settings.account_nicknames.remove(account_id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{remove_account_references, Settings};
+
+    #[test]
+    fn legacy_settings_default_to_no_account_nicknames() {
+        let settings: Settings = serde_json::from_str(
+            r#"{
+                "launch_at_login": false,
+                "refresh_interval_secs": 300,
+                "card_order": ["codex"]
+            }"#,
+        )
+        .expect("legacy settings should deserialize");
+
+        assert!(settings.account_nicknames.is_empty());
+    }
+
+    #[test]
+    fn removing_account_cleans_order_and_nickname() {
+        let mut settings = Settings {
+            card_order: vec!["codex".into(), "moonshot".into()],
+            ..Settings::default()
+        };
+        settings
+            .account_nicknames
+            .insert("moonshot".into(), "备用".into());
+
+        remove_account_references(&mut settings, "moonshot");
+
+        assert_eq!(settings.card_order, vec!["codex"]);
+        assert!(!settings.account_nicknames.contains_key("moonshot"));
+    }
 }

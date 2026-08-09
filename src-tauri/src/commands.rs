@@ -5,39 +5,98 @@
 
 use crate::core::oauth_codex;
 use crate::core::oauth_device;
-use crate::core::providers::{self, AuthSpec, Credential, ProviderSnapshot};
+use crate::core::providers::{
+    self, presentation::AccountCardModel, presentation::BrandStyle, AddAccountType, AuthSpec,
+    Credential,
+};
 use crate::core::scheduler::Snapshots;
 use crate::core::scheduler_ctl::SchedulerCtl;
 use crate::core::settings::{self, Settings};
 use crate::core::store;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt as _;
+
+static SETTINGS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn settings_write_lock() -> Result<MutexGuard<'static, ()>, String> {
+    SETTINGS_WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "设置写入锁已损坏，已停止写入".to_string())
+}
 
 /// 一个可添加供应商的视图（驱动添加向导 UI）
 #[derive(Serialize)]
 pub struct AddableProvider {
     pub id: String,
-    pub display_name: String,
+    pub product_name: String,
+    pub description: String,
+    pub account_type: AddAccountType,
+    pub vendor: AddableVendor,
+    pub brand: BrandStyle,
     pub auth_spec: AuthSpec,
 }
 
-/// 拉取所有已抓取 provider 的最新内存快照（App 运行期数据，关闭即丢）。
+#[derive(Serialize)]
+pub struct AddableVendor {
+    pub id: String,
+    pub display_name: String,
+    pub brand: BrandStyle,
+}
+
+/// 将最新内存快照通过各 Provider 的字段映射转换为标准卡片契约。
+/// 前端只消费 AccountCardModel，不再判断具体供应商。
 #[tauri::command]
-pub fn get_snapshots(cache: State<Snapshots>) -> Vec<ProviderSnapshot> {
-    cache.read().unwrap().values().cloned().collect()
+pub fn get_account_cards(cache: State<Snapshots>) -> Vec<AccountCardModel> {
+    let registry = providers::registry();
+    let snapshots = cache.read().unwrap().values().cloned().collect::<Vec<_>>();
+    snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let provider = registry
+                .iter()
+                .find(|provider| provider.id() == snapshot.provider_id);
+            match provider {
+                Some(provider) => Some(provider.present(snapshot)),
+                None => {
+                    log::warn!("{} 没有对应的卡片映射，跳过", snapshot.provider_id);
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 /// 列出「添加供应商」入口可见的 provider（含 auth_spec，驱动动态表单）。
 #[tauri::command]
 pub fn list_addable_providers() -> Vec<AddableProvider> {
-    let list = providers::addable_registry()
+    let mut entries = providers::addable_registry();
+    entries.sort_by_key(|provider| {
+        (
+            provider.brand().vendor().order(),
+            provider.add_account_type().order(),
+        )
+    });
+    let list = entries
         .into_iter()
-        .map(|p| AddableProvider {
-            id: p.id().to_string(),
-            display_name: p.display_name().to_string(),
-            auth_spec: p.auth_spec(),
+        .map(|provider| {
+            let vendor = provider.brand().vendor();
+            AddableProvider {
+                id: provider.id().to_string(),
+                product_name: provider.add_product_name().to_string(),
+                description: provider.add_description().to_string(),
+                account_type: provider.add_account_type(),
+                vendor: AddableVendor {
+                    id: vendor.id().to_string(),
+                    display_name: vendor.display_name().to_string(),
+                    brand: vendor.brand().style(),
+                },
+                brand: provider.brand().style(),
+                auth_spec: provider.auth_spec(),
+            }
         })
         .collect::<Vec<_>>();
     log::info!("list_addable_providers 返回 {} 个 provider", list.len());
@@ -56,17 +115,74 @@ pub fn get_settings() -> Settings {
     settings::load()
 }
 
-/// 保存设置：刷新间隔广播给 scheduler；开机启动即时生效（平台副作用）。
+/// 保存通用设置。只处理设置面板拥有的两个字段，避免昵称/排序携带旧副本
+/// 覆盖新值。副作用与文件保存按可回滚顺序执行，成功后才更新运行时调度器。
 #[tauri::command]
-pub fn set_settings(
+pub fn set_general_settings(
     app: AppHandle,
     ctl: State<SchedulerCtl>,
-    settings: Settings,
-) -> Result<(), String> {
-    ctl.set_interval(settings.refresh_interval_secs);
-    settings::save(&settings).map_err(|e| e.to_string())?;
-    apply_autostart(&app, settings.launch_at_login)?;
-    Ok(())
+    launch_at_login: bool,
+    refresh_interval_secs: u64,
+) -> Result<Settings, String> {
+    let _guard = settings_write_lock()?;
+    if !settings::INTERVAL_OPTIONS.contains(&refresh_interval_secs) {
+        return Err(format!("不支持的刷新间隔: {refresh_interval_secs} 秒"));
+    }
+
+    let previous = settings::load_strict().map_err(|e| e.to_string())?;
+    let mut next = previous.clone();
+    next.launch_at_login = launch_at_login;
+    next.refresh_interval_secs = refresh_interval_secs;
+    let autostart_changed = previous.launch_at_login != next.launch_at_login;
+
+    if autostart_changed {
+        apply_autostart(&app, next.launch_at_login)?;
+    }
+    if let Err(error) = settings::save(&next) {
+        if autostart_changed {
+            if let Err(rollback_error) = apply_autostart(&app, previous.launch_at_login) {
+                return Err(format!(
+                    "保存设置失败: {error}；恢复开机启动状态也失败: {rollback_error}"
+                ));
+            }
+        }
+        return Err(error.to_string());
+    }
+    ctl.set_interval(next.refresh_interval_secs);
+    Ok(next)
+}
+
+/// 保存账号昵称，只合并该字段，不触碰刷新间隔或开机启动。
+#[tauri::command]
+pub fn set_account_nickname(account_id: String, nickname: String) -> Result<Settings, String> {
+    let _guard = settings_write_lock()?;
+    let mut current = settings::load_strict().map_err(|e| e.to_string())?;
+    let nickname = nickname.trim();
+    if nickname.is_empty() {
+        current.account_nicknames.remove(&account_id);
+    } else {
+        current
+            .account_nicknames
+            .insert(account_id, nickname.to_string());
+    }
+    settings::save(&current).map_err(|e| e.to_string())?;
+    Ok(current)
+}
+
+/// 保存卡片顺序，只合并排序字段并去掉空值和重复账号。
+#[tauri::command]
+pub fn set_card_order(card_order: Vec<String>) -> Result<Settings, String> {
+    let _guard = settings_write_lock()?;
+    let mut seen = std::collections::HashSet::new();
+    let normalized = card_order
+        .into_iter()
+        .filter(|account_id| !account_id.trim().is_empty())
+        .filter(|account_id| seen.insert(account_id.clone()))
+        .collect();
+    let mut current = settings::load_strict().map_err(|e| e.to_string())?;
+    current.card_order = normalized;
+    settings::save(&current).map_err(|e| e.to_string())?;
+    Ok(current)
 }
 
 /// 可选刷新间隔档位（秒），供前端下拉。
@@ -100,9 +216,11 @@ pub async fn save_api_key_provider(
     let cred = Credential { data };
 
     // 先验证凭证可用（真实抓取一次），失败则不落盘
-    p.fetch(&cred).await.map_err(|e| format!("凭证验证失败：{e}"))?;
+    p.fetch(&cred)
+        .await
+        .map_err(|e| format!("凭证验证失败：{e}"))?;
 
-    store::save_credential(&provider_id, &cred).map_err(|e| e.to_string())?;
+    store::create_credential(&provider_id, &cred).map_err(|e| e.to_string())?;
     ctl.trigger_refresh(); // 立即刷新面板数据
     let _ = app; // 保留句柄（未来可用于其他副作用）
     Ok(())
@@ -122,8 +240,10 @@ pub async fn import_local_credential(
 
     match p.detect_local().await {
         Some(cred) => {
-            p.fetch(&cred).await.map_err(|e| format!("本机凭证已失效：{e}"))?;
-            store::save_credential(&provider_id, &cred).map_err(|e| e.to_string())?;
+            p.fetch(&cred)
+                .await
+                .map_err(|e| format!("本机凭证已失效：{e}"))?;
+            store::create_credential(&provider_id, &cred).map_err(|e| e.to_string())?;
             ctl.trigger_refresh();
             Ok(true)
         }
@@ -148,7 +268,7 @@ pub async fn kimi_device_poll(
         .await
         .map_err(|e| e.to_string())?;
     let cred = Credential { data };
-    store::save_credential("kimi_code", &cred).map_err(|e| e.to_string())?;
+    store::create_credential("kimi_code", &cred).map_err(|e| e.to_string())?;
     ctl.trigger_refresh();
     Ok(())
 }
@@ -171,29 +291,50 @@ pub async fn codex_device_poll(
         .await
         .map_err(|e| e.to_string())?;
     let cred = Credential { data };
-    store::save_credential("codex", &cred).map_err(|e| e.to_string())?;
+    store::create_credential("codex", &cred).map_err(|e| e.to_string())?;
     ctl.trigger_refresh();
     Ok(())
 }
 
-/// 移除一个已配置的 provider：删除加密凭证 + 清掉内存快照。
+/// 移除一个已配置账号：删除该账号的加密凭证 + 清掉对应内存快照。
 #[tauri::command]
 pub fn remove_provider(
     app: AppHandle,
     cache: State<'_, Snapshots>,
-    provider_id: String,
+    account_id: String,
 ) -> Result<(), String> {
-    store::delete_credential(&provider_id).map_err(|e| e.to_string())?;
-    cache.write().unwrap().remove(&provider_id);
+    store::delete_credential(&account_id).map_err(|e| e.to_string())?;
+    cache.write().unwrap().remove(&account_id);
+    let _guard = match settings_write_lock() {
+        Ok(guard) => guard,
+        Err(error) => {
+            log::warn!("账号 {account_id} 已删除，但无法锁定设置文件: {error}");
+            let _ = app.emit("snapshots-updated", ());
+            return Ok(());
+        }
+    };
+    let mut current_settings = match settings::load_strict() {
+        Ok(settings) => settings,
+        Err(error) => {
+            log::warn!("账号 {account_id} 已删除，但设置文件损坏，未覆盖原文件: {error}");
+            let _ = app.emit("snapshots-updated", ());
+            return Ok(());
+        }
+    };
+    settings::remove_account_references(&mut current_settings, &account_id);
+    if let Err(error) = settings::save(&current_settings) {
+        // 凭证和缓存已经删除，设置清理失败不应让前端误判为“删除失败”。
+        log::warn!("账号 {account_id} 已删除，但清理排序/昵称设置失败: {error}");
+    }
     let _ = app.emit("snapshots-updated", ());
-    log::info!("已移除 provider: {provider_id}");
+    log::info!("已移除账号: {account_id}");
     Ok(())
 }
 
 /// 是否已配置过任何 provider（前端区分"加载中"和"还没有添加供应商"）。
 #[tauri::command]
 pub fn has_configured_providers() -> bool {
-    !store::configured_provider_ids().is_empty()
+    !store::configured_accounts().is_empty()
 }
 
 /// 前端"退出应用"：先置 QUITTING 标志再退出，放行 main.rs 的 ExitRequested 守卫。
@@ -217,8 +358,32 @@ mod tests {
     fn addable_providers_are_nonempty_and_serializable() {
         let list = list_addable_providers();
         assert_eq!(list.len(), 6, "应返回 6 个可添加 provider");
+        assert_eq!(list[0].vendor.id, "openai");
+        assert_eq!(list[0].account_type, AddAccountType::Plan);
+        assert_eq!(list[0].product_name, "Codex 套餐");
+
+        let mut vendor_counts = HashMap::new();
+        for provider in &list {
+            *vendor_counts
+                .entry(provider.vendor.id.as_str())
+                .or_insert(0) += 1;
+        }
+        assert_eq!(vendor_counts.get("openai"), Some(&2));
+        assert_eq!(vendor_counts.get("moonshot"), Some(&2));
+        assert_eq!(vendor_counts.get("deepseek"), Some(&1));
+        assert_eq!(vendor_counts.get("tencent"), Some(&1));
+        let tokenhub = list
+            .iter()
+            .find(|provider| provider.id == "tencent_tokenhub")
+            .unwrap();
+        assert_eq!(tokenhub.account_type, AddAccountType::Plan);
+        assert!(matches!(tokenhub.auth_spec, AuthSpec::CloudSecret { .. }));
+
         let json = serde_json::to_string(&list).expect("AddableProvider 序列化失败");
         assert!(json.contains("\"kind\":\"oauth\""));
         assert!(json.contains("\"kind\":\"api_key\""));
+        assert!(json.contains("\"account_type\":\"plan\""));
+        assert!(json.contains("\"account_type\":\"api\""));
+        assert!(json.contains("\"accent_dark\""));
     }
 }

@@ -9,7 +9,7 @@ mod commands;
 mod core;
 mod platform;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -22,6 +22,35 @@ pub static QUITTING: AtomicBool = AtomicBool::new(false);
 /// Windows 上无装饰+置顶窗口 show 后可能未真正获焦就收到 Focused(false)，
 /// 直接 hide 会让面板刚弹出就消失（观感"闪退"）。
 static POPOVER_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
+/// 每次显式 show/hide 都递增；延迟失焦任务只允许关闭同一代窗口状态。
+static POPOVER_VISIBILITY_EPOCH: AtomicU64 = AtomicU64::new(0);
+/// show 后的短保护期。WebView2 可能在真正聚焦前后发出瞬时 Focused(false)。
+static POPOVER_SHOW_GRACE_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+const POPOVER_SHOW_GRACE_MS: u64 = 450;
+#[cfg(target_os = "windows")]
+const POPOVER_BLUR_CONFIRM_MS: u64 = 160;
+
+fn monotonicish_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub(crate) fn mark_panel_shown() {
+    POPOVER_HAS_FOCUS.store(false, Ordering::Relaxed);
+    POPOVER_SHOW_GRACE_UNTIL_MS.store(
+        monotonicish_ms().saturating_add(POPOVER_SHOW_GRACE_MS),
+        Ordering::Relaxed,
+    );
+    POPOVER_VISIBILITY_EPOCH.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(crate) fn mark_panel_hidden() {
+    POPOVER_HAS_FOCUS.store(false, Ordering::Relaxed);
+    POPOVER_SHOW_GRACE_UNTIL_MS.store(0, Ordering::Relaxed);
+    POPOVER_VISIBILITY_EPOCH.fetch_add(1, Ordering::Relaxed);
+}
 
 #[tokio::main]
 async fn main() {
@@ -32,7 +61,11 @@ async fn main() {
     std::panic::set_hook(Box::new(move |info| {
         if let Some(path) = &log_file {
             let msg = format!("PANIC: {info}\n");
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
                 use std::io::Write;
                 let _ = f.write_all(msg.as_bytes());
             }
@@ -64,18 +97,20 @@ async fn main() {
         // 面板（如果开着），防止多实例托盘图标互相干扰（Windows 实测有
         // 两个 tokenmeter.exe 同时在跑，点击事件混乱 → 观感"闪退"）。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 二次启动：若面板窗口存在则显示并聚焦（用户可能以为没打开）
-            if let Some(w) = app.get_webview_window("popover") {
-                let _ = w.show();
-                let _ = w.set_focus();
+            // 二次启动：若面板已经创建则按平台定位后显示，不能直接 show
+            // 尚未定位的隐藏窗口（Windows 会出现在默认位置）。
+            if app.get_webview_window("popover").is_some() {
+                platform::tray::show_panel_on_primary_monitor(app);
             }
         }))
         .invoke_handler(tauri::generate_handler![
-            commands::get_snapshots,
+            commands::get_account_cards,
             commands::list_addable_providers,
             commands::on_panel_open,
             commands::get_settings,
-            commands::set_settings,
+            commands::set_general_settings,
+            commands::set_account_nickname,
+            commands::set_card_order,
             commands::interval_options,
             commands::save_api_key_provider,
             commands::import_local_credential,
@@ -104,7 +139,10 @@ async fn main() {
 
             // 调度器运行：core 层不感知 Tauri，抓取完成通过闭包回发前端事件
             let cache = app.state::<core::scheduler::Snapshots>().inner().clone();
-            let ctl = app.state::<core::scheduler_ctl::SchedulerCtl>().inner().clone();
+            let ctl = app
+                .state::<core::scheduler_ctl::SchedulerCtl>()
+                .inner()
+                .clone();
             let notify = {
                 let handle = app.handle().clone();
                 move || {
@@ -123,10 +161,7 @@ async fn main() {
                 // Windows 上 WebviewWindow 必须在主线程创建（异步任务会拿到
                 // 无效窗口句柄导致白屏/窗口缺失），因此用 run_on_main_thread。
                 let _ = handle.run_on_main_thread(move || {
-                    if let Some(w) = platform::tray::get_or_create_panel(&h2) {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
+                    platform::tray::show_panel_on_primary_monitor(&h2);
                     let _ = h2.emit("debug-auto-panel", ());
                 });
             }
@@ -140,15 +175,54 @@ async fn main() {
                     tauri::WindowEvent::Focused(true) => {
                         POPOVER_HAS_FOCUS.store(true, Ordering::Relaxed);
                     }
-                    tauri::WindowEvent::Focused(false)
-                        if POPOVER_HAS_FOCUS.load(Ordering::Relaxed) =>
-                    {
-                        POPOVER_HAS_FOCUS.store(false, Ordering::Relaxed);
-                        let _ = window.hide();
+                    tauri::WindowEvent::Focused(false) => {
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            if POPOVER_HAS_FOCUS.swap(false, Ordering::Relaxed) {
+                                mark_panel_hidden();
+                                let _ = window.hide();
+                            }
+                        }
+
+                        #[cfg(target_os = "windows")]
+                        {
+                            // 只处理真正获得过焦点的窗口。Windows 在 show 过程中可能先发
+                            // false 再发 true；这种前置 false 不代表用户点击了外部。
+                            if !POPOVER_HAS_FOCUS.swap(false, Ordering::Relaxed) {
+                                return;
+                            }
+
+                            // 延迟确认失焦：点击托盘关闭时，托盘 Click(Up) 会在失焦之后到达。
+                            // 显式 show/hide 会递增 epoch，从而取消这个延迟任务；若焦点恢复，
+                            // POPOVER_HAS_FOCUS 也会阻止误隐藏。
+                            let epoch = POPOVER_VISIBILITY_EPOCH.load(Ordering::Relaxed);
+                            let now = monotonicish_ms();
+                            let grace_until = POPOVER_SHOW_GRACE_UNTIL_MS.load(Ordering::Relaxed);
+                            let delay = grace_until
+                                .saturating_sub(now)
+                                .saturating_add(POPOVER_BLUR_CONFIRM_MS)
+                                .max(POPOVER_BLUR_CONFIRM_MS);
+                            let app_handle = window.app_handle().clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(delay));
+                                let main_handle = app_handle.clone();
+                                let _ = app_handle.run_on_main_thread(move || {
+                                    if POPOVER_VISIBILITY_EPOCH.load(Ordering::Relaxed) != epoch
+                                        || POPOVER_HAS_FOCUS.load(Ordering::Relaxed)
+                                    {
+                                        return;
+                                    }
+                                    if let Some(panel) = main_handle.get_webview_window("popover") {
+                                        mark_panel_hidden();
+                                        let _ = panel.hide();
+                                    }
+                                });
+                            });
+                        }
                     }
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        POPOVER_HAS_FOCUS.store(false, Ordering::Relaxed);
+                        mark_panel_hidden();
                         let _ = window.hide();
                     }
                     _ => {}

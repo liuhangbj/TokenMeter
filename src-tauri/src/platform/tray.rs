@@ -25,12 +25,14 @@ const MENUBAR_RGBA: &[u8] = include_bytes!("../../icons/menubar.rgba");
 #[cfg(not(target_os = "macos"))]
 const TRAY_COLOR_RGBA: &[u8] = include_bytes!("../../icons/tray_color.rgba");
 const MENUBAR_SIZE: u32 = 64;
-/// 面板固定宽度（锁定，不随视图切换变化）：
-/// 480px 向导 + 面板 padding 12*2 + border 1*2 = 506
-pub(crate) const PANEL_W: i32 = 506;
-/// 面板固定高度（锁定）：容纳添加供应商向导/表单，内容超高时面板内滚动。
-/// 高度锁定后窗口位置永不改变，彻底消除"顶边随高度变化上下跳"的重定位。
-pub(crate) const PANEL_H: i32 = 560;
+/// 面板默认宽度：由 506px 收窄约 25%，适合额度概览的紧凑信息密度。
+/// 添加供应商向导也会在此宽度内响应式排版。
+pub(crate) const PANEL_W: i32 = 380;
+/// 面板的最大初始高度。前端会在内容不足时自动缩短窗口；超过该高度时面板内滚动。
+pub(crate) const PANEL_H: i32 = 800;
+/// Windows 外层窗口固定高度。WebView2 可见窗口不做运行时 resize，内容在内部滚动。
+#[cfg(target_os = "windows")]
+const WINDOWS_PANEL_H: i32 = 560;
 /// 托盘单击防抖间隔（毫秒）：双击的第二击在此窗口内被忽略
 const CLICK_DEBOUNCE_MS: u64 = 300;
 /// 上次托盘点击的毫秒时间戳（双击防抖用）
@@ -62,18 +64,24 @@ pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::Webvi
     if let Some(w) = app.get_webview_window("popover") {
         return Some(w);
     }
+    #[cfg(target_os = "windows")]
+    let initial_height = WINDOWS_PANEL_H;
+    #[cfg(not(target_os = "windows"))]
+    let initial_height = PANEL_H;
+
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("TokenMeter")
-        .inner_size(PANEL_W as f64, PANEL_H as f64)
+        .inner_size(PANEL_W as f64, initial_height as f64)
         .resizable(false)
         .decorations(false)
         // macOS：透明窗口 + 圆角外透明；Windows：透明不可靠且实色面板不需要
         .transparent(cfg!(target_os = "macos"))
         .always_on_top(true)
         .skip_taskbar(true)
-        // Windows：关闭原生阴影，避免窗口外层透明内边距（约 7px）造成
-        // "窗口比内容宽、右侧露黑边"；CSS 已有 box-shadow 提供视觉阴影。
-        .shadow(cfg!(target_os = "macos"))
+        // 无边框透明窗口的原生阴影仍按宿主矩形绘制，无法可靠贴合
+        // WebView 内的 CSS 圆角，底部会露出尖角。所有平台统一由 CSS
+        // 面板负责边界与阴影，避免两套窗口轮廓叠加。
+        .shadow(false)
         .visible(false) // 创建后由 toggle_panel 定位再显示
         .build()
         .map_err(|e| log::error!("创建面板窗口失败: {e}"))
@@ -85,31 +93,24 @@ pub(crate) fn get_or_create_panel(app: &tauri::AppHandle) -> Option<tauri::Webvi
 ///   面板底部始终贴在任务栏上方，首次/再次弹出位置完全一致，
 ///   不依赖托盘 rect 的准确性，也不随面板高度变化而跳动。
 /// - macOS：菜单栏在顶部 → 面板在图标正下方弹出。
-fn toggle_panel(
-    app: &tauri::AppHandle,
-    tray_rect: tauri::Rect,
-    cursor: tauri::PhysicalPosition<f64>,
-) {
+fn toggle_panel(app: &tauri::AppHandle, cursor: tauri::PhysicalPosition<f64>) {
     let Some(window) = get_or_create_panel(app) else {
         log::warn!("toggle_panel: 面板窗口创建失败");
         return;
     };
     if window.is_visible().unwrap_or(false) {
         // 面板已打开 → 点击收起（hide 复用窗口，不销毁）
+        crate::mark_panel_hidden();
         let _ = window.hide();
         return;
     }
 
     log::info!("toggle_panel: 就绪，直接定位显示");
-    position_and_show(app, tray_rect, cursor);
+    position_and_show(app, cursor);
 }
 
 /// 定位并显示面板：定位必须在 show 之前完成，显示后不再移动窗口。
-fn position_and_show(
-    app: &tauri::AppHandle,
-    _tray_rect: tauri::Rect,
-    _cursor: tauri::PhysicalPosition<f64>,
-) {
+fn position_and_show(app: &tauri::AppHandle, _cursor: tauri::PhysicalPosition<f64>) {
     let Some(window) = get_or_create_panel(app) else {
         log::warn!("position_and_show: 面板窗口创建失败");
         return;
@@ -122,13 +123,20 @@ fn position_and_show(
         if let Some(m) = monitor {
             let wa = m.work_area(); // 物理坐标，已扣除任务栏
             let margin = 8.0_f64;
-            // 右下角锚定：宽度固定 → x 恒定；y 只随当前高度变化，底部边缘贴任务栏。
-            // 注意：work_area 是物理坐标，PANEL_W 是逻辑宽度，必须乘显示器缩放。
+            // 右下角锚定使用窗口当前真实物理尺寸；不再用逻辑常量猜测，
+            // 避免 DPI 或未来尺寸策略变化后出现离任务栏的大段空隙。
             let scale = m.scale_factor();
-            let x = (wa.position.x as f64 + wa.size.width as f64 - PANEL_W as f64 * scale - margin)
-                .max(wa.position.x as f64 + 8.0);
-            let y = (wa.position.y as f64 + wa.size.height as f64 - PANEL_H as f64 * scale - margin)
-                .max(wa.position.y as f64 + 8.0);
+            let size = window.outer_size().ok();
+            let panel_w = size
+                .map(|value| value.width as f64)
+                .unwrap_or(PANEL_W as f64 * scale);
+            let panel_h = size
+                .map(|value| value.height as f64)
+                .unwrap_or(WINDOWS_PANEL_H as f64 * scale);
+            let x = (wa.position.x as f64 + wa.size.width as f64 - panel_w - margin)
+                .max(wa.position.x as f64 + margin);
+            let y = (wa.position.y as f64 + wa.size.height as f64 - panel_h - margin)
+                .max(wa.position.y as f64 + margin);
             let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
         }
     }
@@ -160,8 +168,34 @@ fn position_and_show(
         let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
     }
 
+    crate::mark_panel_shown();
     let _ = window.show();
     let _ = window.set_focus();
+}
+
+/// 无托盘点击坐标时的显示入口（二次启动、自动化截图）：Windows 用主显示器
+/// 右下角走与托盘点击相同的定位逻辑；其他平台只负责显示。
+pub(crate) fn show_panel_on_primary_monitor(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(Some(monitor)) = app.primary_monitor() {
+            let work_area = monitor.work_area();
+            let cursor = PhysicalPosition::new(
+                (work_area.position.x as f64 + work_area.size.width as f64 - 1.0)
+                    .max(work_area.position.x as f64),
+                (work_area.position.y as f64 + work_area.size.height as f64 - 1.0)
+                    .max(work_area.position.y as f64),
+            );
+            position_and_show(app, cursor);
+            return;
+        }
+    }
+
+    if let Some(window) = get_or_create_panel(app) {
+        crate::mark_panel_shown();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
@@ -203,7 +237,6 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
-                rect,
                 position,
                 ..
             } = event
@@ -220,7 +253,7 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
                 }
                 LAST_CLICK_MS.store(now, AtomicOrdering::Relaxed);
 
-                toggle_panel(tray.app_handle(), rect, position);
+                toggle_panel(tray.app_handle(), position);
             }
         })
         .build(app)?;

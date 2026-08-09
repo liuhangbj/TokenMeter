@@ -4,8 +4,9 @@
 //! 端点：
 //!   - `/v1/organization/costs`（按时间桶聚合花费，USD）
 //!   - `/v1/organization/usage/completions`（token 数）
+//!
 //! 说明：消耗由官方时间桶聚合返回（非本地差分）。用户 2026-08-02 决定不展示
-//!       日/周/月消耗统计，故仅取最近周期聚合值实时显示。
+//! 日/周/月消耗统计，故仅取最近周期聚合值实时显示。
 
 use super::*;
 use crate::core::providers::Brand;
@@ -30,7 +31,47 @@ struct CostsResp {
 struct CostBucket {
     start_time: i64,
     #[serde(default)]
-    amount: Option<f64>,
+    results: Vec<CostResult>,
+    /// 兼容早期扁平响应；当前官方响应将金额放在 results[] 中。
+    #[serde(default)]
+    amount: Option<CostAmount>,
+}
+
+#[derive(Deserialize)]
+struct CostResult {
+    #[serde(default)]
+    amount: Option<CostAmount>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CostAmount {
+    Value {
+        value: f64,
+        #[allow(dead_code)]
+        currency: Option<String>,
+    },
+    Legacy(f64),
+}
+
+impl CostAmount {
+    fn value(&self) -> f64 {
+        match self {
+            CostAmount::Value { value, .. } => *value,
+            CostAmount::Legacy(value) => *value,
+        }
+    }
+}
+
+impl CostBucket {
+    fn amount(&self) -> f64 {
+        self.results
+            .iter()
+            .filter_map(|result| result.amount.as_ref())
+            .map(CostAmount::value)
+            .sum::<f64>()
+            .max(self.amount.as_ref().map(CostAmount::value).unwrap_or(0.0))
+    }
 }
 
 #[async_trait]
@@ -47,6 +88,15 @@ impl Provider for OpenAiPlatformProvider {
     fn billing_mode(&self) -> BillingMode {
         BillingMode::PayAsYouGo
     }
+    fn add_product_name(&self) -> &'static str {
+        "OpenAI API"
+    }
+    fn add_description(&self) -> &'static str {
+        "按量余额与用量"
+    }
+    fn detail_url(&self) -> Option<&'static str> {
+        Some("https://platform.openai.com/usage")
+    }
     fn auth_spec(&self) -> AuthSpec {
         AuthSpec::ApiKey {
             fields: vec![AuthField {
@@ -57,7 +107,8 @@ impl Provider for OpenAiPlatformProvider {
                 required: true,
                 options: None,
             }],
-            hint: "需组织 Owner 权限创建的 Admin Key（sk-admin- 前缀），权限极大，仅存系统 Keychain。",
+            hint:
+                "需组织 Owner 权限创建的 Admin Key（sk-admin- 前缀），权限极大，仅存系统 Keychain。",
         }
     }
     async fn fetch(&self, cred: &Credential) -> anyhow::Result<ProviderSnapshot> {
@@ -108,16 +159,15 @@ impl Provider for OpenAiPlatformProvider {
         let mut week = 0.0;
         let mut month = 0.0;
         for b in &resp.data {
-            if let Some(a) = b.amount {
-                if b.start_time >= start_day {
-                    day += a;
-                }
-                if b.start_time >= start_week {
-                    week += a;
-                }
-                if b.start_time >= start_month {
-                    month += a;
-                }
+            let amount = b.amount();
+            if b.start_time >= start_day {
+                day += amount;
+            }
+            if b.start_time >= start_week {
+                week += amount;
+            }
+            if b.start_time >= start_month {
+                month += amount;
             }
         }
 
@@ -155,6 +205,8 @@ impl Provider for OpenAiPlatformProvider {
         ];
 
         Ok(ProviderSnapshot {
+            account_id: String::new(),
+            account_label: None,
             provider_id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             plan_name: None,

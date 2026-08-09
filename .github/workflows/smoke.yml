@@ -1,16 +1,26 @@
-# Windows 冒烟测试（手动触发）：云端 Windows 机器自动验证
+# Windows 冒烟测试（PR 自动运行，也可手动触发）：云端 Windows 机器自动验证
 # 用户没有 Windows 环境也不装虚拟机，用 GitHub Actions 的 windows runner 做真实测试。
 #
 # 验证项：
 #  1. App 能正常启动且进程存活（不崩）
 #  2. 启动后零可见窗口（MainWindowHandle == 0）→ 纯菜单栏架构生效
 #  3. 进程持续存活（scheduler 正常运行，无 panic）
+#  4. 自动显示面板后尺寸为 380×560（按 DPI 缩放），并贴在工作区右下角
+#  5. 上传真实 Windows 面板截图，供 WebView2 白屏/渲染回归检查
 #
-# 局限：无法模拟托盘图标点击/右键菜单（Windows 托盘交互无法从 CLI 触发）。
+# 局限：仍无法模拟系统托盘图标点击/右键菜单。
 name: Windows Smoke Test
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "scripts/win/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
@@ -36,6 +46,9 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build release binary
         # 必须启用 custom-protocol：否则 release exe 仍是 dev 模式，
@@ -92,6 +105,19 @@ jobs:
           if (-not $p) { throw "FAIL: App 运行 18 秒后崩溃" }
           Write-Output "PASS: 运行 18 秒仍存活"
 
+      - name: Stop hidden-start instance
+        shell: pwsh
+        run: |
+          $pid2 = [int](Get-Content "$PWD\pid.txt")
+          Stop-Process -Id $pid2 -Force -ErrorAction SilentlyContinue
+
+      - name: Assert visible panel geometry and capture screenshot
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $exe = "$PWD\src-tauri\target\release\tokenmeter.exe"
+          & "$PWD\scripts\win\smoke-panel.ps1" -Exe $exe -OutDir "$PWD\smoke-visible"
+
       - name: Show app log
         if: always()
         shell: pwsh
@@ -119,4 +145,5 @@ jobs:
           path: |
             app.log
             pid.txt
+            smoke-visible/**
           if-no-files-found: ignore

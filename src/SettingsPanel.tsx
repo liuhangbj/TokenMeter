@@ -5,13 +5,15 @@ import {
   subscribeUpdate,
   checkForUpdate,
   download,
-  relaunchToInstall,
+  installAndRelaunch,
   type UpdateState,
 } from "./updater";
 
 interface Settings {
   launch_at_login: boolean;
   refresh_interval_secs: number;
+  card_order: string[];
+  account_nicknames: Record<string, string>;
 }
 
 const INTERVAL_LABELS: Record<number, string> = {
@@ -37,13 +39,19 @@ export function SettingsPanel() {
 
   const update = async (patch: Partial<Settings>) => {
     if (!settings) return;
+    const previous = settings;
     const next = { ...settings, ...patch };
     setSettings(next); // 乐观更新
     setSaving(true);
     try {
-      await invoke("set_settings", { settings: next });
+      const saved = await invoke<Settings>("set_general_settings", {
+        launchAtLogin: next.launch_at_login,
+        refreshIntervalSecs: next.refresh_interval_secs,
+      });
+      setSettings(saved);
     } catch (e) {
       console.error("保存设置失败", e);
+      setSettings(previous);
     } finally {
       setSaving(false);
     }
@@ -69,7 +77,7 @@ export function SettingsPanel() {
         await download();
         break;
       case "ready":
-        await relaunchToInstall();
+        await installAndRelaunch();
         break;
       default:
         await checkForUpdate();

@@ -33,6 +33,12 @@ impl Provider for TencentCodingPlanProvider {
     fn billing_mode(&self) -> BillingMode {
         BillingMode::Subscription
     }
+    fn add_product_name(&self) -> &'static str {
+        "Coding Plan"
+    }
+    fn detail_url(&self) -> Option<&'static str> {
+        Some("https://cloud.tencent.com/product/codingplan")
+    }
     /// 无官方额度查询 API，隐藏「添加供应商」入口（2026-08-02 用户决策）。
     /// 代码保留，未来官方 API 提供时改回 true 即恢复。
     fn enabled(&self) -> bool {

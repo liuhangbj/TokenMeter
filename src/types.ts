@@ -1,7 +1,5 @@
-// 与 Rust 侧 providers/mod.rs 的统一数据模型严格对齐（serde 序列化后的 JSON 形态）。
+// 与 Rust 侧 providers/presentation.rs 的标准卡片契约严格对齐。
 // 字段名遵循 serde 默认 snake_case。任何 Rust 侧字段变更都必须同步到这里。
-
-export type BillingMode = "Subscription" | "PayAsYouGo";
 
 export type QuotaUnit =
   | "Percent"
@@ -9,33 +7,32 @@ export type QuotaUnit =
   | "Tokens"
   | { Currency: string };
 
-export type WindowPeriod =
-  | "Hours5"
-  | "Day"
-  | "Week"
-  | "Month"
-  | { Custom: number };
+export interface BrandStyle {
+  key: string;
+  accent_light: string;
+  accent_alt_light: string;
+  accent_dark: string;
+  accent_alt_dark: string;
+}
 
-export interface QuotaWindow {
-  period: WindowPeriod;
+export interface QuotaCardItem {
+  kind: "quota";
   label: string;
-  used: number | null;      // 百分比（0-100），无上限窗口为 null
-  used_raw: number | null;  // 原始用量（金额 / token 数 / 请求数），用于数值文案
+  used_percent: number | null;
+  used: number | null;
   limit: number | null;
-  remaining: number | null;
   unit: QuotaUnit;
-  reset_at: number | null;  // Unix 秒
+  reset_at: number | null;
 }
 
-export interface Balance {
-  total: number;
-  granted: number | null;
-  topped_up: number | null;
-  currency: string;
-  available: boolean;
+export interface BalanceCardItem {
+  kind: "balance";
+  label: string;
+  value: number | null;
+  unit: QuotaUnit;
 }
 
-export type Fidelity = "Exact" | "Estimated" | "Partial";
+export type CardItem = QuotaCardItem | BalanceCardItem;
 
 export type HealthStatus =
   | "Ok"
@@ -44,17 +41,29 @@ export type HealthStatus =
   | "Exhausted"
   | "NetworkError";
 
-export interface ProviderSnapshot {
-  provider_id: string;
-  display_name: string;
-  plan_name: string | null;
-  billing: BillingMode;
-  balance: Balance | null;
-  windows: QuotaWindow[];
-  fidelity: Fidelity;
+export interface AccountCardModel {
+  account_id: string;
+  account_label: string | null;
+  provider: {
+    id: string;
+    name: string;
+    brand: BrandStyle;
+    detail_url: string | null;
+  };
+  plan: {
+    name: string;
+    tier: number | null;
+  } | null;
+  primary: {
+    label: string;
+    value: number | null;
+    unit: QuotaUnit | null;
+    health_used_percent: number | null;
+  };
+  items: CardItem[];
   status: HealthStatus;
-  fetched_at: number; // Unix 秒
-  last_error: string | null; // 最近一次抓取失败说明（成功为 null）
+  fetched_at: number;
+  last_error: string | null;
 }
 
 // ---------- 添加供应商向导的认证规格 ----------
@@ -74,8 +83,18 @@ export type AuthSpec =
   | { kind: "cloud_secret"; fields: AuthField[] }
   | { kind: "hybrid"; primary: AuthSpec; fallback: AuthSpec };
 
-export interface AddableProvider {
+export interface AddableVendor {
   id: string;
   display_name: string;
+  brand: BrandStyle;
+}
+
+export interface AddableProvider {
+  id: string;
+  product_name: string;
+  description: string;
+  account_type: "plan" | "api";
+  vendor: AddableVendor;
+  brand: BrandStyle;
   auth_spec: AuthSpec;
 }

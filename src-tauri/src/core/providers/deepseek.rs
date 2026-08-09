@@ -47,6 +47,24 @@ impl Provider for DeepSeekProvider {
     fn billing_mode(&self) -> BillingMode {
         BillingMode::PayAsYouGo
     }
+    fn add_product_name(&self) -> &'static str {
+        "DeepSeek API"
+    }
+    fn add_description(&self) -> &'static str {
+        "充值余额"
+    }
+    fn detail_url(&self) -> Option<&'static str> {
+        Some("https://platform.deepseek.com/usage")
+    }
+    fn card_config(&self) -> presentation::CardConfig {
+        let mut config = presentation::CardConfig::for_billing(self.billing_mode());
+        config.detail_url = self.detail_url();
+        config.balance_role = presentation::BalanceRole::Primary {
+            topped_up_label: "充值余额",
+            granted_label: "赠送余额",
+        };
+        config
+    }
     fn auth_spec(&self) -> AuthSpec {
         AuthSpec::ApiKey {
             fields: vec![AuthField {
@@ -87,6 +105,8 @@ impl Provider for DeepSeekProvider {
         let topped_up = info.topped_up_balance.parse::<f64>().unwrap_or(0.0);
 
         Ok(ProviderSnapshot {
+            account_id: String::new(),
+            account_label: None,
             provider_id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             plan_name: None,

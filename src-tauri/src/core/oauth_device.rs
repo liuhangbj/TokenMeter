@@ -6,9 +6,11 @@
 //!   - 设备码请求体：仅 `client_id`（**不带 scope**）
 //!   - 轮询令牌：`POST /api/oauth/token`，grant_type=device_code
 //!   - 授权页字段：`verification_uri_complete`（fallback `verification_uri`）
+//!
 //! 凭证仅经内存 → 加密存储，不落盘明文。
 
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -42,6 +44,16 @@ fn default_interval() -> u64 {
     5
 }
 
+fn device_model() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Windows"
+    } else if cfg!(target_os = "macos") {
+        "macOS"
+    } else {
+        "Linux"
+    }
+}
+
 /// 实测脚本要求的公共请求头。
 fn apply_common_headers(builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     let host = hostname::get()
@@ -50,7 +62,7 @@ fn apply_common_headers(builder: reqwest::RequestBuilder) -> reqwest::RequestBui
     builder
         .header("X-Msh-Platform", "kimi_code_cli")
         .header("X-Msh-Device-Name", host)
-        .header("X-Msh-Device-Model", "macOS")
+        .header("X-Msh-Device-Model", device_model())
         .header("X-Msh-Device-Id", "tokenmeter")
 }
 
@@ -88,7 +100,10 @@ struct TokenResp {
 }
 
 /// 第二步：轮询直到用户授权（或超时）。返回凭证 JSON。
-pub async fn poll_until_authorized(device_code: &str, interval_secs: u64) -> Result<serde_json::Value> {
+pub async fn poll_until_authorized(
+    device_code: &str,
+    interval_secs: u64,
+) -> Result<serde_json::Value> {
     let client = crate::core::providers::http_client();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(600);
     let mut wait = interval_secs.max(3);
@@ -115,6 +130,7 @@ pub async fn poll_until_authorized(device_code: &str, interval_secs: u64) -> Res
             return Ok(json!({
                 "access_token": at,
                 "refresh_token": rt,
+                "account_label": account_label_from_access_token(&at),
             }));
         }
         match resp.error.as_deref() {
@@ -127,6 +143,64 @@ pub async fn poll_until_authorized(device_code: &str, interval_secs: u64) -> Res
     }
 }
 
+/// Kimi access token 有时是 JWT。若带有身份 claims，按用户名、邮箱、ID 选取；
+/// token 为不透明字符串或没有身份 claim 时返回 None，由 usages.userId 兜底。
+pub(crate) fn account_label_from_access_token(access_token: &str) -> Option<String> {
+    let payload_b64 = access_token.split('.').nth(1)?;
+    let payload = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+    [
+        "preferred_username",
+        "username",
+        "name",
+        "email",
+        "user_id",
+        "sub",
+    ]
+    .into_iter()
+    .find_map(|key| value.get(key).and_then(|field| field.as_str()))
+    .filter(|label| !label.is_empty())
+    .map(str::to_string)
+}
+
 // 保留常量避免未使用告警（OAUTH_HOST 供未来扩展）
 #[allow(dead_code)]
 const _: &str = OAUTH_HOST;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn account_label_prefers_username_then_email_then_id() {
+        let payload = URL_SAFE_NO_PAD
+            .encode(br#"{"username":"kimi-user","email":"kimi@example.com","user_id":"user_123"}"#);
+        assert_eq!(
+            account_label_from_access_token(&format!("header.{payload}.signature")),
+            Some("kimi-user".to_string())
+        );
+
+        let email_payload =
+            URL_SAFE_NO_PAD.encode(br#"{"email":"kimi@example.com","user_id":"user_123"}"#);
+        assert_eq!(
+            account_label_from_access_token(&format!("header.{email_payload}.signature")),
+            Some("kimi@example.com".to_string())
+        );
+
+        let id_payload = URL_SAFE_NO_PAD.encode(br#"{"user_id":"user_123"}"#);
+        assert_eq!(
+            account_label_from_access_token(&format!("header.{id_payload}.signature")),
+            Some("user_123".to_string())
+        );
+    }
+
+    #[test]
+    fn device_model_matches_build_platform() {
+        #[cfg(target_os = "windows")]
+        assert_eq!(device_model(), "Windows");
+        #[cfg(target_os = "macos")]
+        assert_eq!(device_model(), "macOS");
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        assert_eq!(device_model(), "Linux");
+    }
+}

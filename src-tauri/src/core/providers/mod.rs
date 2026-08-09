@@ -10,6 +10,7 @@ pub mod deepseek;
 pub mod kimi_code;
 pub mod moonshot;
 pub mod openai_platform;
+pub mod presentation;
 pub mod tencent;
 pub mod tencent_coding_plan;
 pub mod tencent_token_plan;
@@ -18,8 +19,8 @@ pub mod tencent_tokenhub;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 // ---------- 统一数据模型 ----------
@@ -94,6 +95,12 @@ pub enum HealthStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderSnapshot {
+    /// 账号实例 ID。provider 实现只负责平台数据，调度器会在抓取后填入实际账号 ID。
+    #[serde(default)]
+    pub account_id: String,
+    /// 适合展示的账号标识（邮箱/姓名/平台用户 ID 等）。没有时前端不显示占位名。
+    #[serde(default)]
+    pub account_label: Option<String>,
     pub provider_id: String,
     pub display_name: String,
     pub plan_name: Option<String>,
@@ -117,6 +124,89 @@ pub enum Brand {
     Moonshot,
     DeepSeek,
     Tencent,
+}
+
+/// “添加供应商”界面的一级厂商分组。
+/// Brand 用于具体产品卡片配色；Vendor 用于把同一厂商的 Plan / API 入口归在一起。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vendor {
+    OpenAI,
+    Moonshot,
+    DeepSeek,
+    Tencent,
+}
+
+impl Brand {
+    pub fn vendor(self) -> Vendor {
+        match self {
+            Brand::OpenAI => Vendor::OpenAI,
+            Brand::Kimi | Brand::Moonshot => Vendor::Moonshot,
+            Brand::DeepSeek => Vendor::DeepSeek,
+            Brand::Tencent => Vendor::Tencent,
+        }
+    }
+}
+
+impl Vendor {
+    pub fn id(self) -> &'static str {
+        match self {
+            Vendor::OpenAI => "openai",
+            Vendor::Moonshot => "moonshot",
+            Vendor::DeepSeek => "deepseek",
+            Vendor::Tencent => "tencent",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Vendor::OpenAI => "OpenAI",
+            Vendor::Moonshot => "Moonshot",
+            Vendor::DeepSeek => "DeepSeek",
+            Vendor::Tencent => "腾讯云",
+        }
+    }
+
+    /// 厂商栏目使用统一图标；Moonshot 采用用户更熟悉的 Kimi 标识。
+    pub fn brand(self) -> Brand {
+        match self {
+            Vendor::OpenAI => Brand::OpenAI,
+            Vendor::Moonshot => Brand::Kimi,
+            Vendor::DeepSeek => Brand::DeepSeek,
+            Vendor::Tencent => Brand::Tencent,
+        }
+    }
+
+    pub fn order(self) -> u8 {
+        match self {
+            Vendor::OpenAI => 0,
+            Vendor::Moonshot => 1,
+            Vendor::DeepSeek => 2,
+            Vendor::Tencent => 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AddAccountType {
+    Plan,
+    Api,
+}
+
+impl AddAccountType {
+    pub fn from_billing(mode: BillingMode) -> Self {
+        match mode {
+            BillingMode::Subscription => Self::Plan,
+            BillingMode::PayAsYouGo => Self::Api,
+        }
+    }
+
+    pub fn order(self) -> u8 {
+        match self {
+            Self::Plan => 0,
+            Self::Api => 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +264,50 @@ pub trait Provider: Send + Sync {
     fn display_name(&self) -> &'static str;
     fn brand(&self) -> Brand;
     fn billing_mode(&self) -> BillingMode;
+
+    /// 添加界面中的产品名称。与主卡片标题分开，允许使用“Codex 套餐”等动作语义。
+    fn add_product_name(&self) -> &'static str {
+        self.display_name()
+    }
+
+    /// 添加界面中的一行简短说明。
+    fn add_description(&self) -> &'static str {
+        match self.billing_mode() {
+            BillingMode::Subscription => "套餐额度",
+            BillingMode::PayAsYouGo => "按量余额与用量",
+        }
+    }
+
+    /// 添加入口中的账户产品类型。它与认证方式完全独立：Plan 也可以使用 API Key。
+    fn add_account_type(&self) -> AddAccountType {
+        AddAccountType::from_billing(self.billing_mode())
+    }
+
+    /// 控制台详情链接；作为标准卡片契约的一部分传给前端。
+    fn detail_url(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// 供应商字段到标准卡片语义的映射配置。
+    fn card_config(&self) -> presentation::CardConfig {
+        let mut config = presentation::CardConfig::for_billing(self.billing_mode());
+        config.detail_url = self.detail_url();
+        config
+    }
+
+    /// 套餐按大致月价映射到统一 0–5 档；未知/合同价返回 None。
+    fn plan_tier(&self, _plan_name: &str) -> Option<u8> {
+        None
+    }
+
+    /// ProviderSnapshot → 前端唯一消费的标准卡片模型。
+    fn present(&self, snapshot: &ProviderSnapshot) -> presentation::AccountCardModel {
+        let tier = snapshot
+            .plan_name
+            .as_deref()
+            .and_then(|name| self.plan_tier(name));
+        presentation::present(snapshot, self.brand(), self.card_config(), tier)
+    }
 
     /// 驱动「添加供应商」表单的动态渲染
     fn auth_spec(&self) -> AuthSpec;

@@ -5,8 +5,8 @@
 
 use anyhow::anyhow;
 use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -28,7 +28,8 @@ fn hex(bytes: &[u8]) -> String {
 
 /// 腾讯云接口数值字段可能是数字也可能是字符串，统一解析。
 pub fn value_num(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok()))
 }
 
 /// 发送腾讯云 API 请求（TC3-HMAC-SHA256 签名）
@@ -37,6 +38,7 @@ pub fn value_num(v: &Value) -> Option<f64> {
 /// - `host`    完整域名（如 `tokenhub.tencentcloudapi.com`）
 /// - `action`  X-TC-Action
 /// - `version` X-TC-Version
+#[allow(clippy::too_many_arguments)]
 pub async fn tencent_post(
     client: &reqwest::Client,
     service: &str,

@@ -1,56 +1,128 @@
-/* TokenMeter 设计 token —— 移植自 design/popover-preview.html
-   品牌主色系（官方核实）+ 5 段用量警示色 + 明暗主题 */
+/* TokenMeter Polar Silver —— 冰银蓝骨架 + 少量暖灰。 */
 
 :root {
   color-scheme: light dark;
 
   /* 5 段用量警示色（满=危险，只作用于有百分比上限的额度/套餐包条） */
-  --lv1: #7ed79b;  /* <50%   浅绿 */
-  --lv2: #2ba471;  /* 50-80  深绿 */
-  --lv3: #e37318;  /* 80-90  橙   */
-  --lv4: #d54941;  /* 90-100 红   */
-  --lv5: #9e2b25;  /* 用完   深红 */
+  --lv1: #4bc990;  /* <50%   清透绿 */
+  --lv2: #169f76;  /* 50-80  深绿 */
+  --lv3: #d98527;  /* 80-90  琥珀 */
+  --lv4: #d9564c;  /* 90-100 红   */
+  --lv5: #a83432;  /* 用完   深红 */
 
   /* 语义色 */
-  --good: #2ba471;
-  --warn: #e37318;
-  --bad:  #d54941;
-  --stale:#9aa0a6;
-}
+  --good: #169f76;
+  --warn: #d98527;
+  --bad:  #d9564c;
+  --stale:#8c98a8;
 
-/* 明暗主题的表面/文字色 */
-:root {
-  /* 不透明实色背景：避免透明窗口 + 半透明 CSS 的异步渲染导致下层内容透出（用户反馈） */
-  --bg:        #f5f5f7;
-  --surface:   #ececee;
-  --card:      #ffffff;
-  --border:    rgba(0, 0, 0, 0.08);
-  --text-1:    #1a1a1a;
-  --text-2:    #5a5a5e;
-  --text-3:    #9aa0a6;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg:      #1c1c1e;
-    --surface: #2c2c2e;
-    --card:    #262628;
-    --border:  rgba(255, 255, 255, 0.1);
-    --text-1:  #f2f2f2;
-    --text-2:  #b8b8bc;
-    --text-3:  #7a7a7e;
-  }
+  /* 全部使用不透明底色，圆角外仍由透明窗口负责。 */
+  --bg:        #f2f5f7;
+  --surface:   #e9eef2;
+  --surface-2: #f7f9fa;
+  --card:      #fbfcfd;
+  --border:    rgba(72, 91, 115, 0.15);
+  --border-strong: rgba(64, 88, 116, 0.27);
+  --text-1:    #172033;
+  --text-2:    #566277;
+  --text-3:    #8994a5;
+  --cool-reflection: rgba(160, 210, 244, 0.2);
+  --warm-reflection: rgba(250, 215, 177, 0.16);
+
+  /* 组件表面与光影：集中定义，确保浅色/深色使用同一结构。 */
+  --panel-top: #f8fafb;
+  --panel-bottom: #f4f3f1;
+  --header-bg: rgba(250, 252, 253, 0.62);
+  --card-top: #ffffff;
+  --card-bottom: #f8fafb;
+  --raised-bg: #ffffff;
+  --hover-bg: rgba(255, 255, 255, 0.84);
+  --control-bg: rgba(255, 255, 255, 0.66);
+  --control-strong-bg: rgba(255, 255, 255, 0.9);
+  --settings-bg: rgba(255, 255, 255, 0.58);
+  --separator: rgba(73, 91, 114, 0.11);
+  --track: #e8edf1;
+  --track-edge: #ffffff;
+  --inner-highlight: rgba(255, 255, 255, 0.95);
+  --inner-highlight-soft: rgba(255, 255, 255, 0.7);
+  --panel-shadow-contact: rgba(38, 50, 67, 0.12);
+  --panel-shadow-depth: rgba(38, 50, 67, 0.18);
+  --card-shadow-contact: rgba(37, 50, 68, 0.06);
+  --card-shadow-depth: rgba(37, 50, 68, 0.075);
+  --card-shadow-hover: rgba(37, 50, 68, 0.1);
 }
 
 /* 品牌主色系（每平台一套 --accent / --accent-2，用于卡片左侧渐变条 + 品牌点） */
 [data-brand="openai"]   { --accent: #10a37f; --accent-2: #0c8a6b; }
 [data-brand="codex"]    { --accent: #10a37f; --accent-2: #0c8a6b; }
-[data-brand="kimi"]     { --accent: #1a1a1a; --accent-2: #000000; }
-[data-brand="moonshot"] { --accent: #1a1a1a; --accent-2: #000000; }
+[data-brand="kimi"]     { --accent: #303845; --accent-2: #141a22; }
+[data-brand="moonshot"] { --accent: #303845; --accent-2: #141a22; }
 [data-brand="deepseek"] { --accent: #4d6bfe; --accent-2: #3a52e6; }
 [data-brand="tencent"]  { --accent: #0052d9; --accent-2: #0046b8; }
+/* Provider 从后端带入四套品牌色；上面的值只保留为旧数据/调试回退。 */
+[data-brand] {
+  --accent: var(--brand-accent-light, #10a37f);
+  --accent-2: var(--brand-accent-alt-light, #0c8a6b);
+}
 
-/* 深色模式下黑色品牌自动提亮，否则黑条在深色面板里看不见 */
 @media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --lv1: #4bd5a0;
+    --lv2: #24b184;
+    --lv3: #e79a3e;
+    --lv4: #ed6a60;
+    --lv5: #c54843;
+    --good: #35c997;
+    --warn: #e79a3e;
+    --bad: #ed6a60;
+    --stale: #788594;
+
+    --bg: #141a20;
+    --surface: #242d36;
+    --surface-2: #202831;
+    --card: #1b222a;
+    --border: rgba(180, 200, 224, 0.14);
+    --border-strong: rgba(180, 202, 228, 0.29);
+    --text-1: #eef3f8;
+    --text-2: #aeb9c7;
+    --text-3: #7d8998;
+    --cool-reflection: rgba(91, 128, 184, 0.16);
+    --warm-reflection: rgba(203, 135, 70, 0.08);
+
+    --panel-top: #1c232b;
+    --panel-bottom: #13191f;
+    --header-bg: rgba(24, 31, 38, 0.82);
+    --card-top: #202832;
+    --card-bottom: #191f26;
+    --raised-bg: #252e38;
+    --hover-bg: rgba(255, 255, 255, 0.065);
+    --control-bg: rgba(255, 255, 255, 0.045);
+    --control-strong-bg: rgba(255, 255, 255, 0.075);
+    --settings-bg: rgba(255, 255, 255, 0.035);
+    --separator: rgba(180, 200, 224, 0.115);
+    --track: #2a343e;
+    --track-edge: rgba(255, 255, 255, 0.055);
+    --inner-highlight: rgba(255, 255, 255, 0.085);
+    --inner-highlight-soft: rgba(255, 255, 255, 0.045);
+    --panel-shadow-contact: rgba(0, 0, 0, 0.38);
+    --panel-shadow-depth: rgba(0, 0, 0, 0.48);
+    --card-shadow-contact: rgba(0, 0, 0, 0.2);
+    --card-shadow-depth: rgba(0, 0, 0, 0.26);
+    --card-shadow-hover: rgba(0, 0, 0, 0.34);
+  }
+
   [data-brand="kimi"],
-  [data-brand="moonshot"] { --accent: #5a5a60; --accent-2: #3a3a40; }
+  [data-brand="moonshot"] {
+    --accent: #c3ccd7;
+    --accent-2: #8f9aa8;
+  }
+
+  [data-brand="deepseek"] { --accent: #6f8aff; --accent-2: #4d6bfe; }
+  [data-brand="tencent"]  { --accent: #5c92f2; --accent-2: #3979e6; }
+  [data-brand] {
+    --accent: var(--brand-accent-dark, var(--brand-accent-light, #10a37f));
+    --accent-2: var(--brand-accent-alt-dark, var(--brand-accent-alt-light, #0c8a6b));
+  }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "tokenmeter"
-version = "0.9.3"
+version = "0.9.4"
 description = "Cross-platform menu bar app for monitoring AI token/quota usage"
 authors = ["hangbits"]
 edition = "2021"
@@ -32,6 +32,7 @@ tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-single-instance = "2"
+tempfile = "3"
 
 [features]
 # 生产/独立二进制必需：启用后前端资源内嵌进 exe（custom protocol），

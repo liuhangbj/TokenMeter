@@ -1,25 +1,96 @@
-// 添加供应商向导：网格选择 → 动态表单（API Key）/ OAuth 授权 / 本机导入
-import { useEffect, useState } from "react";
+// 添加供应商：厂商折叠分组 → 产品类型 → 数据驱动的认证流程。
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
-import type { AddableProvider, AuthField } from "./types";
-import { brandOf } from "./utils";
+import type { AddableProvider, AuthField, AuthSpec } from "./types";
+import { brandStyleVars } from "./utils";
+import {
+  BrandIcon,
+  IconApi,
+  IconArrowLeft,
+  IconChevronDown,
+  IconPlan,
+} from "./icons";
 
 type Step =
   | { kind: "pick" }
   | { kind: "form"; provider: AddableProvider }
   | { kind: "oauth"; provider: AddableProvider };
 
-const KIND_LABEL: Record<string, string> = {
-  oauth: "浏览器授权",
-  api_key: "API Key",
-  cloud_secret: "SecretId/Key",
-  hybrid: "混合",
-};
+interface VendorGroup {
+  vendor: AddableProvider["vendor"];
+  products: AddableProvider[];
+}
+
+function primaryAuthKind(spec: AuthSpec): AuthSpec["kind"] {
+  return spec.kind === "hybrid" ? primaryAuthKind(spec.primary) : spec.kind;
+}
+
+function authFields(spec: AuthSpec): AuthField[] {
+  if (spec.kind === "api_key" || spec.kind === "cloud_secret") return spec.fields;
+  if (spec.kind === "hybrid") return authFields(spec.primary);
+  return [];
+}
+
+function authHint(spec: AuthSpec): string | null {
+  if (spec.kind === "api_key") return spec.hint;
+  if (spec.kind === "hybrid") return authHint(spec.primary);
+  return null;
+}
+
+function WizardHeader({
+  title,
+  subtitle,
+  onBack,
+}: {
+  title: string;
+  subtitle: string;
+  onBack: () => void;
+}) {
+  return (
+    <div className="wizard-header">
+      <button className="wizard-back" type="button" onClick={onBack} aria-label="返回">
+        <IconArrowLeft />
+      </button>
+      <div className="wizard-heading">
+        <div className="wizard-title">{title}</div>
+        <div className="wizard-sub">{subtitle}</div>
+      </div>
+      <span className="wizard-head-balance" aria-hidden="true" />
+    </div>
+  );
+}
+
+function ProductIntro({ provider }: { provider: AddableProvider }) {
+  const isPlan = provider.account_type === "plan";
+  return (
+    <div
+      className="auth-product"
+      data-brand={provider.vendor.brand.key}
+      style={brandStyleVars(provider.vendor.brand)}
+    >
+      <span className="auth-product-brand">
+        <BrandIcon
+          brand={provider.vendor.brand.key}
+          label={provider.vendor.display_name}
+          size={20}
+        />
+      </span>
+      <span className="auth-product-copy">
+        <span className="auth-product-vendor">{provider.vendor.display_name}</span>
+        <span className="auth-product-name">{provider.product_name}</span>
+      </span>
+      <span className={`account-type-chip ${provider.account_type}`}>
+        {isPlan ? "PLAN" : "API"}
+      </span>
+    </div>
+  );
+}
 
 export function AddProvider({ onDone }: { onDone: () => void }) {
   const [providers, setProviders] = useState<AddableProvider[]>([]);
   const [step, setStep] = useState<Step>({ kind: "pick" });
+  const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -34,10 +105,25 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
       });
   }, []);
 
-  const pick = (p: AddableProvider) => {
+  const groups = useMemo<VendorGroup[]>(() => {
+    const grouped = new Map<string, VendorGroup>();
+    for (const provider of providers) {
+      const existing = grouped.get(provider.vendor.id);
+      if (existing) existing.products.push(provider);
+      else grouped.set(provider.vendor.id, { vendor: provider.vendor, products: [provider] });
+    }
+    return [...grouped.values()];
+  }, [providers]);
+
+  const pick = (provider: AddableProvider) => {
     setError(null);
-    if (p.auth_spec.kind === "oauth") setStep({ kind: "oauth", provider: p });
-    else setStep({ kind: "form", provider: p });
+    setBusy(false);
+    setSuccess(false);
+    if (primaryAuthKind(provider.auth_spec) === "oauth") {
+      setStep({ kind: "oauth", provider });
+    } else {
+      setStep({ kind: "form", provider });
+    }
   };
 
   if (step.kind === "form") {
@@ -57,7 +143,7 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
               providerId: step.provider.id,
               fields: values,
             });
-            setSuccess(true); // 显示"✅ 验证成功"，延迟关窗
+            setSuccess(true);
             setTimeout(onDone, 1200);
           } catch (e) {
             setError(String(e));
@@ -79,22 +165,83 @@ export function AddProvider({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="wizard">
-      <button className="link-back" onClick={onDone}>← 返回</button>
-      <div className="wizard-title">添加供应商</div>
-      <div className="wizard-sub">选择要监控的平台</div>
-      {loadError && <div className="form-error">加载供应商列表失败：{loadError}</div>}
-      {!loadError && providers.length === 0 && (
-        <div className="empty">暂无可用供应商（加载中或列表为空）</div>
-      )}
-      <div className="provider-grid">
-        {providers.map((p) => (
-          <button key={p.id} className="provider-cell" data-brand={brandOf(p.id)} onClick={() => pick(p)}>
-            <span className="provider-dot" />
-            <span className="provider-name">{p.display_name}</span>
-            <span className="provider-kind">{KIND_LABEL[p.auth_spec.kind] ?? p.auth_spec.kind}</span>
-          </button>
-        ))}
+    <div className="wizard wizard-picker">
+      <WizardHeader title="添加供应商" subtitle="选择厂商与账户类型" onBack={onDone} />
+      <div className="wizard-main">
+        {loadError && <div className="form-status error">加载供应商列表失败：{loadError}</div>}
+        {!loadError && providers.length === 0 && (
+          <div className="wizard-empty">正在加载供应商…</div>
+        )}
+
+        <div className="vendor-list">
+          {groups.map((group) => {
+            const multiple = group.products.length > 1;
+            const expanded = multiple && expandedVendor === group.vendor.id;
+            const directProduct = multiple ? null : group.products[0];
+            return (
+              <section
+                key={group.vendor.id}
+                className={`vendor-group ${expanded ? "expanded" : ""}`}
+                data-brand={group.vendor.brand.key}
+                style={brandStyleVars(group.vendor.brand)}
+              >
+                <button
+                  className="vendor-trigger"
+                  type="button"
+                  aria-expanded={multiple ? expanded : undefined}
+                  onClick={() => {
+                    if (directProduct) pick(directProduct);
+                    else setExpandedVendor(expanded ? null : group.vendor.id);
+                  }}
+                >
+                  <span className="vendor-brand">
+                    <BrandIcon
+                      brand={group.vendor.brand.key}
+                      label={group.vendor.display_name}
+                      size={22}
+                    />
+                  </span>
+                  <span className="vendor-name">{group.vendor.display_name}</span>
+                  <span className="vendor-count">
+                    {multiple ? `${group.products.length} 种账户` : group.products[0].product_name}
+                  </span>
+                  <span className={`vendor-chevron ${multiple ? "" : "direct"} ${expanded ? "open" : ""}`}>
+                    <IconChevronDown />
+                  </span>
+                </button>
+
+                {expanded && (
+                  <div className="provider-options">
+                    {group.products.map((provider) => (
+                      <button
+                        key={provider.id}
+                        className={`provider-option ${provider.account_type}`}
+                        type="button"
+                        onClick={() => pick(provider)}
+                      >
+                        <span className="provider-type-icon">
+                          {provider.account_type === "plan" ? <IconPlan /> : <IconApi />}
+                        </span>
+                        <span className="provider-option-copy">
+                          <span className="provider-option-title">{provider.product_name}</span>
+                          <span className="provider-option-desc">{provider.description}</span>
+                        </span>
+                        <span className={`account-type-chip ${provider.account_type}`}>
+                          {provider.account_type === "plan" ? "PLAN" : "API"}
+                        </span>
+                        <span className="provider-option-chevron"><IconChevronDown /></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
+        {providers.length > 0 && (
+          <div className="wizard-note"><span>ⓘ</span> 同一厂商可添加多个账户</div>
+        )}
       </div>
     </div>
   );
@@ -110,50 +257,54 @@ function ApiKeyForm({
   onBack: () => void;
   onSubmit: (values: Record<string, string>) => void;
 }) {
-  const fields: AuthField[] =
-    provider.auth_spec.kind === "api_key" || provider.auth_spec.kind === "cloud_secret"
-      ? provider.auth_spec.fields
-      : [];
-  const hint = provider.auth_spec.kind === "api_key" ? provider.auth_spec.hint : null;
+  const fields = authFields(provider.auth_spec);
+  const hint = authHint(provider.auth_spec);
   const [values, setValues] = useState<Record<string, string>>({});
 
   return (
-    <div className="wizard">
-      <button className="link-back" onClick={onBack}>← 返回</button>
-      <div className="wizard-title">{provider.display_name}</div>
-      {hint && <div className="wizard-sub">{hint}</div>}
-      <div className="form">
-        {fields.map((f) => (
-          <label key={f.key} className="form-field">
-            <span className="form-label">
-              {f.label}{f.required && <em>*</em>}
-            </span>
-            {f.options ? (
-              <select
-                value={values[f.key] ?? ""}
-                onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-              >
-                <option value="">请选择</option>
-                {f.options.map(([v, label]) => (
-                  <option key={v} value={v}>{label}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type={f.secret ? "password" : "text"}
-                placeholder={f.placeholder}
-                value={values[f.key] ?? ""}
-                onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-              />
-            )}
-          </label>
-        ))}
+    <div className="wizard wizard-auth">
+      <WizardHeader title="添加账户" subtitle="填写凭证并验证连接" onBack={onBack} />
+      <div className="wizard-main">
+        <ProductIntro provider={provider} />
+        {hint && <div className="auth-hint">{hint}</div>}
+        <div className="form auth-form">
+          {fields.map((field) => (
+            <label key={field.key} className="form-field">
+              <span className="form-label">
+                {field.label}{field.required && <em>*</em>}
+              </span>
+              {field.options ? (
+                <select
+                  value={values[field.key] ?? ""}
+                  onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
+                >
+                  <option value="">请选择</option>
+                  {field.options.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={field.secret ? "password" : "text"}
+                  placeholder={field.placeholder}
+                  value={values[field.key] ?? ""}
+                  onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
+                />
+              )}
+            </label>
+          ))}
+        </div>
+        {error && <div className="form-status error">{error}</div>}
+        {success && <div className="form-status success">验证成功，凭证已保存</div>}
+        <button
+          className="btn primary block auth-submit"
+          type="button"
+          disabled={busy || success}
+          onClick={() => onSubmit(values)}
+        >
+          {success ? "已保存" : busy ? "正在验证…" : "保存并验证"}
+        </button>
       </div>
-      {error && <div className="form-error">{error}</div>}
-      {success && <div className="form-ok">✅ 验证成功，已保存凭证</div>}
-      <button className="btn primary block" disabled={busy || success} onClick={() => onSubmit(values)}>
-        {success ? "已保存" : busy ? "验证中…" : "保存并验证"}
-      </button>
     </div>
   );
 }
@@ -165,20 +316,17 @@ function OAuthFlow({
   onBack: () => void;
   onDone: () => void;
 }) {
-  // 统一状态机，杜绝"已导入"和"等待授权"叠加（用户反馈两提示同时出现）
   type Status =
     | { kind: "idle" }
-    | { kind: "working"; note: string }   // 导入中 / 等待浏览器授权
-    | { kind: "device"; code: string }    // Kimi 设备码授权中
+    | { kind: "working"; note: string }
+    | { kind: "device"; code: string }
     | { kind: "success" }
     | { kind: "error"; msg: string };
   const [status, setStatus] = useState<Status>({ kind: "idle" });
-
   const busy = status.kind === "working" || status.kind === "device";
 
-  // Codex/Kimi 本机已装 CLI 时可一键导入
   const tryImport = async () => {
-    setStatus({ kind: "working", note: "检测本机凭证…" });
+    setStatus({ kind: "working", note: "正在检测本机凭证…" });
     try {
       const ok = await invoke<boolean>("import_local_credential", { providerId: provider.id });
       if (ok) {
@@ -192,9 +340,8 @@ function OAuthFlow({
     }
   };
 
-  // Kimi 设备码流程
   const startDevice = async () => {
-    setStatus({ kind: "working", note: "请求授权码…" });
+    setStatus({ kind: "working", note: "正在请求授权码…" });
     try {
       const start = await invoke<{ user_code: string; verify_url: string; device_code: string; interval_secs: number }>(
         "kimi_device_start"
@@ -212,9 +359,8 @@ function OAuthFlow({
     }
   };
 
-  // Codex 设备码授权（官方新版流程）：与 Kimi 同款，先拿设备码再轮询
   const startCodex = async () => {
-    setStatus({ kind: "working", note: "请求授权码…" });
+    setStatus({ kind: "working", note: "正在请求授权码…" });
     try {
       const start = await invoke<{ user_code: string; verify_url: string; device_auth_id: string; interval_secs: number }>(
         "codex_device_start"
@@ -237,37 +383,45 @@ function OAuthFlow({
   const isCodex = provider.id === "codex";
 
   return (
-    <div className="wizard">
-      <button className="link-back" onClick={onBack}>← 返回</button>
-      <div className="wizard-title">{provider.display_name}</div>
-      <div className="wizard-sub">通过浏览器登录授权，或导入本机已登录的 CLI 凭证</div>
-
-      {/* 单一状态提示区：任何时刻只显示一条 */}
-      {status.kind === "device" && (
-        <div className="device-code">
-          授权码 <strong>{status.code}</strong> 已在浏览器打开，完成登录后此窗自动继续…
+    <div className="wizard wizard-auth">
+      <WizardHeader title="添加账户" subtitle="授权登录并同步账户信息" onBack={onBack} />
+      <div className="wizard-main">
+        <ProductIntro provider={provider} />
+        <div className="oauth-copy">
+          可通过浏览器完成安全授权，也可以导入本机已经登录的 CLI 凭证。
         </div>
-      )}
-      {status.kind === "working" && (
-        <div className="device-code">{status.note}</div>
-      )}
-      {status.kind === "success" && <div className="form-ok">✅ 已添加，凭证已保存</div>}
-      {status.kind === "error" && <div className="form-error">{status.msg}</div>}
 
-      <div className="oauth-actions">
-        <button className="btn block" disabled={busy} onClick={tryImport}>
-          导入本机 CLI 凭证
-        </button>
-        {isKimi && (
-          <button className="btn primary block" disabled={busy} onClick={startDevice}>
-            {status.kind === "device" ? "等待授权…" : "浏览器授权登录"}
-          </button>
+        {status.kind === "device" && (
+          <div className="form-status working device-status">
+            <span>浏览器授权码</span>
+            <strong>{status.code}</strong>
+            <small>完成登录后，此窗口会自动继续</small>
+          </div>
         )}
-        {isCodex && (
-          <button className="btn primary block" disabled={busy} onClick={startCodex}>
-            {busy ? "等待授权…" : "浏览器授权登录"}
+        {status.kind === "working" && <div className="form-status working">{status.note}</div>}
+        {status.kind === "success" && <div className="form-status success">账户已添加，凭证已保存</div>}
+        {status.kind === "error" && <div className="form-status error">{status.msg}</div>}
+
+        <div className="oauth-actions">
+          {(isKimi || isCodex) && (
+            <button
+              className="btn primary block"
+              type="button"
+              disabled={busy || status.kind === "success"}
+              onClick={isKimi ? startDevice : startCodex}
+            >
+              {busy ? "等待浏览器授权…" : "浏览器授权登录"}
+            </button>
+          )}
+          <button
+            className="btn block secondary"
+            type="button"
+            disabled={busy || status.kind === "success"}
+            onClick={tryImport}
+          >
+            导入本机 CLI 凭证
           </button>
-        )}
+        </div>
       </div>
     </div>
   );

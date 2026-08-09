@@ -1,98 +1,133 @@
-// 供应商卡片 —— 按数据形态自适应渲染（额度型 / 余额型 / 套餐包）
+// 标准账户卡片：只识别主指标、额度行与余额行，不感知具体供应商。
 import { open } from "@tauri-apps/plugin-shell";
-import type { ProviderSnapshot, QuotaWindow } from "./types";
+import type { AccountCardModel, BalanceCardItem, QuotaCardItem, QuotaUnit } from "./types";
 import {
-  usageLevel, levelClass, statusDotClass, fidMeta,
-  resetIn, updatedAgo, fmtMoney, fmtTokens, brandOf, consoleUrl,
+  brandStyleVars, fmtMoney, fmtTokens, levelClass, resetIn, statusDotClass,
+  updatedAgo, usageLevel,
 } from "./utils";
+import { BrandIcon } from "./icons";
 
-function WindowRow({ w }: { w: QuotaWindow }) {
-  const hasCap = w.limit !== null && w.limit > 0;
-  const lv = usageLevel(w.used, hasCap);
-  const cls = hasCap ? levelClass(lv) : "brand";
-  const pct = w.used ?? 0;
+function isCurrency(unit: QuotaUnit): unit is { Currency: string } {
+  return typeof unit === "object" && "Currency" in unit;
+}
 
-  // 展示文案按单位与是否有上限区分，不再把原始值当百分比显示。
-  const isCurrency = typeof w.unit === "object" && "Currency" in w.unit;
-  const currency = isCurrency ? (w.unit as { Currency: string }).Currency : null;
-  const isCount = w.unit === "Tokens" || w.unit === "Requests";
+function formatAmount(value: number, unit: QuotaUnit): string {
+  if (isCurrency(unit)) return fmtMoney(value, unit.Currency);
+  if (unit === "Tokens" || unit === "Requests") return fmtTokens(value);
+  return `${Math.round(value)}%`;
+}
 
-  let rightText = "—";
-  if (isCurrency && currency) {
-    if (w.limit !== null && w.remaining !== null) {
-      rightText = `${fmtMoney(w.limit - w.remaining, currency)} / ${fmtMoney(w.limit, currency)}`;
-    } else if (w.used_raw !== null) {
-      rightText = fmtMoney(w.used_raw, currency);
-    }
-  } else if (isCount) {
-    if (w.used_raw !== null) {
-      rightText = w.limit !== null
-        ? `${fmtTokens(w.used_raw)} / ${fmtTokens(w.limit)}`
-        : fmtTokens(w.used_raw);
-    } else if (w.used !== null) {
-      rightText = `${Math.round(w.used)}%`;
-    }
-  } else if (w.used !== null) {
-    rightText = `${Math.round(w.used)}%`;
+/** 各平台返回精度不一致；额度百分比统一四舍五入为整数展示。 */
+function formatPercent(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+function quotaUsageText(item: QuotaCardItem): string {
+  const pct = item.used_percent;
+  if (item.unit === "Percent") return pct === null ? "—" : formatPercent(pct);
+  if (item.limit !== null && item.used !== null) {
+    const amount = `${formatAmount(item.used, item.unit)} / ${formatAmount(item.limit, item.unit)}`;
+    return pct === null ? amount : `${amount} · ${formatPercent(pct)}`;
   }
+  if (item.used !== null) return formatAmount(item.used, item.unit);
+  if (pct !== null) return formatPercent(pct);
+  return "—";
+}
+
+function QuotaRow({ item }: { item: QuotaCardItem }) {
+  const hasCap = item.limit !== null && item.limit > 0;
+  const level = usageLevel(item.used_percent, hasCap);
+  const cls = hasCap ? levelClass(level) : "brand";
 
   return (
-    <div className="wrow">
+    <div className="wrow quota-row">
       <div className="wrow-top">
-        <span className="wrow-label">{w.label}</span>
-        <span className="wrow-reset">{resetIn(w.reset_at)}</span>
-        <span className="wrow-pct tnum">{rightText}</span>
+        <span className="wrow-label">{item.label}</span>
+        <span className="wrow-reset">{resetIn(item.reset_at)}</span>
+        <span className="wrow-pct tnum">{quotaUsageText(item)}</span>
       </div>
-      {/* 无上限窗口（成本/token 统计）不画进度条，避免把金额当百分比宽度 */}
-      {hasCap && <div className="bar"><i className={cls} style={{ width: `${pct}%` }} /></div>}
+      <div className="bar"><i className={cls} style={{ width: `${item.used_percent ?? 0}%` }} /></div>
     </div>
   );
 }
 
-export function ProviderCard({ snap }: { snap: ProviderSnapshot }) {
-  const brand = brandOf(snap.provider_id);
-  const maxLv = Math.max(0, ...snap.windows.map((w) => usageLevel(w.used, w.limit !== null && w.limit > 0)));
-  const dotCls = statusDotClass(snap.status, maxLv);
-  const [fidCls, fidLabel] = fidMeta(snap.fidelity);
-  const link = consoleUrl(snap.provider_id);
+function BalanceRow({ item }: { item: BalanceCardItem }) {
+  return (
+    <div className="wrow metric-row">
+      <div className="wrow-top">
+        <span className="wrow-label">{item.label}</span>
+        <span className="wrow-reset" />
+        <span className="wrow-pct tnum">
+          {item.value === null ? "—" : formatAmount(item.value, item.unit)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function planTierClass(tier: number | null): string {
+  return tier !== null && tier >= 0 && tier <= 5 ? `tier-${tier}` : "tier-neutral";
+}
+
+function primaryValue(card: AccountCardModel): string {
+  const { value, unit } = card.primary;
+  if (value === null || unit === null) return "—";
+  return formatAmount(value, unit);
+}
+
+export function ProviderCard({
+  card,
+  accountLabel,
+}: {
+  card: AccountCardModel;
+  accountLabel?: string;
+}) {
+  const healthLevel = card.primary.health_used_percent === null
+    ? 0
+    : usageLevel(card.primary.health_used_percent, true);
+  const dotCls = statusDotClass(card.status, healthLevel);
+  const quotaItems = card.items.filter((item): item is QuotaCardItem => item.kind === "quota");
+  const balanceItems = card.items.filter((item): item is BalanceCardItem => item.kind === "balance");
+  const link = card.provider.detail_url;
 
   return (
-    <div className="card" data-brand={brand}>
+    <div
+      className="card"
+      data-brand={card.provider.brand.key}
+      style={brandStyleVars(card.provider.brand)}
+    >
       <div className="card-head">
-        <span className="brand-dot" />
-        <span className="card-name">{snap.display_name}</span>
-        {snap.plan_name && <span className="plan-badge">{snap.plan_name}</span>}
+        <span className="brand-icon">
+          <BrandIcon brand={card.provider.brand.key} label={card.provider.name} />
+        </span>
+        <span className="card-identity">
+          <span className="card-name">{card.provider.name}</span>
+          {accountLabel && <span className="account-label" title={accountLabel}>{accountLabel}</span>}
+        </span>
         <span className="spacer" />
+        {card.plan && (
+          <span className={`plan-badge ${planTierClass(card.plan.tier)}`}>{card.plan.name}</span>
+        )}
         <span className={`status-dot ${dotCls}`} title="用量状态" />
       </div>
 
-      {/* 余额 hero（按量制） */}
-      {snap.balance && (
-        <>
-          <div className="balance-hero tnum">{fmtMoney(snap.balance.total, snap.balance.currency)}</div>
-          <div className="balance-sub">
-            {snap.balance.topped_up !== null && `充值 ${fmtMoney(snap.balance.topped_up, snap.balance.currency)}`}
-            {snap.balance.granted !== null && snap.balance.granted > 0 && ` · 赠送 ${fmtMoney(snap.balance.granted, snap.balance.currency)}`}
-            {!snap.balance.available && " · 余额不足"}
-          </div>
-        </>
-      )}
+      <div className="balance-meta">
+        <span className="balance-sub">{card.primary.label}</span>
+        <span className="updated-at">更新于 {updatedAgo(card.fetched_at)}</span>
+      </div>
+      <div className="balance-hero tnum">{primaryValue(card)}</div>
 
-      {/* 额度窗口（订阅制） */}
-      {snap.windows.map((w, i) => (
-        <WindowRow key={i} w={w} />
-      ))}
+      {/* 映射层已决定语义；UI 永远按“全部额度 → 全部余额”排列。 */}
+      <div className="card-details">
+        {quotaItems.map((item, index) => <QuotaRow key={`quota-${index}-${item.label}`} item={item} />)}
+        {balanceItems.map((item, index) => <BalanceRow key={`balance-${index}-${item.label}`} item={item} />)}
+      </div>
 
-      {/* 卡脚 */}
       <div className="card-foot">
-        <span className={`fid-dot ${fidCls}`} title={fidLabel} />
-        {snap.status === "NetworkError" && snap.last_error && (
-          <span className="foot-error" title={snap.last_error}>刷新失败 · 显示上次数据</span>
+        {card.status === "NetworkError" && card.last_error && (
+          <span className="foot-error" title={card.last_error}>刷新失败 · 显示上次数据</span>
         )}
-        {snap.status === "AuthExpired" && (
-          <span className="foot-error">凭证已过期，请重新授权</span>
-        )}
-        <span>{updatedAgo(snap.fetched_at)}</span>
+        {card.status === "AuthExpired" && <span className="foot-error">凭证已过期，请重新授权</span>}
         <span className="spacer" />
         {link && (
           <a
@@ -100,10 +135,8 @@ export function ProviderCard({ snap }: { snap: ProviderSnapshot }) {
             href={link}
             target="_blank"
             rel="noreferrer"
-            onClick={(e) => {
-              // 拦截默认行为：Tauri WebView 对 target=_blank 会新建空白 WebView 窗口
-              // （表现为"点链接闪切一次"），这里直接交给系统默认浏览器打开。
-              e.preventDefault();
+            onClick={(event) => {
+              event.preventDefault();
               open(link);
             }}
           >
