@@ -1,0 +1,141 @@
+name: Backfill Intel macOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to receive the Intel macOS assets
+        required: true
+        default: v0.9.6
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: macos-15-intel
+    steps:
+      - name: Check out the released source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Validate release and source version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          CONFIG_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          test "$CONFIG_VERSION" = "$VERSION"
+          gh release view "$TAG" --repo "$REPO" --json tagName,isDraft --jq 'select(.tagName == env.TAG and .isDraft == false) | .tagName'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Intel macOS app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --target x86_64-apple-darwin
+
+      - name: Validate and normalize Intel artifacts
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          BUNDLE_ROOT="src-tauri/target/x86_64-apple-darwin/release/bundle"
+          APP_PATH="$BUNDLE_ROOT/macos/TokenMeter.app"
+          EXECUTABLE="$APP_PATH/Contents/MacOS/TokenMeter"
+          DMG_SOURCE="$(find "$BUNDLE_ROOT/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          UPDATE_SOURCE="$(find "$BUNDLE_ROOT/macos" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
+          UPDATE_SIG_SOURCE="${UPDATE_SOURCE}.sig"
+
+          test -f "$EXECUTABLE"
+          test -n "$DMG_SOURCE" && test -s "$DMG_SOURCE"
+          test -n "$UPDATE_SOURCE" && test -s "$UPDATE_SOURCE"
+          test -s "$UPDATE_SIG_SOURCE"
+          lipo -verify_arch x86_64 "$EXECUTABLE"
+          if lipo -archs "$EXECUTABLE" | grep -qw arm64; then
+            echo "::error::Intel app unexpectedly contains arm64"
+            exit 1
+          fi
+          file "$EXECUTABLE"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH" || echo "::notice::App follows the existing unsigned 0.9.6 distribution policy"
+
+          mkdir -p upload
+          cp "$DMG_SOURCE" "upload/TokenMeter_${VERSION}_x64.dmg"
+          cp "$UPDATE_SOURCE" "upload/TokenMeter_x64.app.tar.gz"
+          cp "$UPDATE_SIG_SOURCE" "upload/TokenMeter_x64.app.tar.gz.sig"
+          ls -lh upload
+
+      - name: Upload Intel assets and merge updater metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          gh release upload "$TAG" upload/TokenMeter_${VERSION}_x64.dmg upload/TokenMeter_x64.app.tar.gz upload/TokenMeter_x64.app.tar.gz.sig --repo "$REPO" --clobber
+          mkdir -p metadata
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir metadata --clobber
+
+          TAG="$TAG" REPO="$REPO" VERSION="$VERSION" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          repo = os.environ["REPO"]
+          version = os.environ["VERSION"]
+          latest_path = Path("metadata/latest.json")
+          signature_path = Path("upload/TokenMeter_x64.app.tar.gz.sig")
+          latest = json.loads(latest_path.read_text())
+          if latest.get("version") != version:
+              raise SystemExit(f"latest.json version {latest.get('version')} does not match {version}")
+          latest.setdefault("platforms", {})["darwin-x86_64"] = {
+              "signature": signature_path.read_text().strip(),
+              "url": f"https://github.com/{repo}/releases/download/{tag}/TokenMeter_x64.app.tar.gz",
+          }
+          expected = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64"}
+          actual = set(latest["platforms"])
+          if actual != expected:
+              raise SystemExit(f"unexpected updater platforms: {sorted(actual)}")
+          Path("latest.json").write_text(json.dumps(latest, indent=2) + "\n")
+          PY
+
+          gh release upload "$TAG" latest.json --repo "$REPO" --clobber
+
+      - name: Verify published Intel release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mkdir -p verify
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir verify --clobber
+          jq -e --arg version "$VERSION" \
+            '.version == $version and (.platforms | keys | sort) == ["darwin-aarch64", "darwin-x86_64", "windows-x86_64"] and .platforms["darwin-x86_64"].url == "https://github.com/'"$REPO"'/releases/download/'"$TAG"'/TokenMeter_x64.app.tar.gz"' \
+            verify/latest.json >/dev/null
+          for asset in "TokenMeter_${VERSION}_x64.dmg" "TokenMeter_x64.app.tar.gz" "TokenMeter_x64.app.tar.gz.sig"; do
+            gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' | grep -Fx "$asset"
+            curl -fsSIL "https://github.com/$REPO/releases/download/$TAG/$asset" >/dev/null
+          done

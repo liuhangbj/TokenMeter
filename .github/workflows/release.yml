@@ -17,6 +17,9 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             bundle: dmg
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundle: dmg
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bundle: msi
@@ -64,7 +67,7 @@ jobs:
             - 套餐主值统一显示剩余百分比，Token/请求数改用 K/M/B/T 紧凑格式
             - 设置面板显示当前版本号
 
-            macOS 提供 Apple Silicon DMG，Windows 提供 x64 安装包。
+            macOS 提供 Apple Silicon 与 Intel DMG，Windows 提供 x64 安装包。
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: false  # latest.json 由 merge job 用 .sig 签名构造后统一上传
@@ -73,7 +76,7 @@ jobs:
   # Tauri CLI 只生成 .sig 签名文件（不生成 latest.json），latest.json 是
   # tauri-action 在 includeUpdaterJson: true 时的产物，且多平台会互相覆盖。
   # 因此这里从 Release 取各平台 .sig，并用正式 tag 构造稳定下载 URL，组装一份
-  # 完整的 latest.json（darwin-aarch64 / windows-x86_64）。最后才发布草稿，
+  # 完整的 latest.json（darwin-aarch64 / darwin-x86_64 / windows-x86_64）。最后才发布草稿，
   # 避免 draft 阶段的 untagged URL 被永久写进更新元数据。
   merge-updater-json:
     needs: build
@@ -92,23 +95,25 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
-          MAC_SIG="TokenMeter_aarch64.app.tar.gz.sig"
+          MAC_ARM_SIG="TokenMeter_aarch64.app.tar.gz.sig"
+          MAC_INTEL_SIG="TokenMeter_x64.app.tar.gz.sig"
           WIN_SIG="TokenMeter_${VERSION}_x64-setup.exe.sig"
           mkdir -p sigs
-          # 两个平台的 assets 可能有秒级可见性延迟；必须等齐，不能见到一个就继续。
+          # 三个平台的 assets 可能有秒级可见性延迟；必须等齐，不能见到一个就继续。
           for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            gh release download "$TAG" --repo "$REPO" --pattern "$MAC_SIG" --dir sigs --clobber 2>&1 || true
+            gh release download "$TAG" --repo "$REPO" --pattern "$MAC_ARM_SIG" --dir sigs --clobber 2>&1 || true
+            gh release download "$TAG" --repo "$REPO" --pattern "$MAC_INTEL_SIG" --dir sigs --clobber 2>&1 || true
             gh release download "$TAG" --repo "$REPO" --pattern "$WIN_SIG" --dir sigs --clobber 2>&1 || true
-            if [ -s "sigs/$MAC_SIG" ] && [ -s "sigs/$WIN_SIG" ]; then
-              echo "两个平台签名均已下载（第 $i 次尝试）"
+            if [ -s "sigs/$MAC_ARM_SIG" ] && [ -s "sigs/$MAC_INTEL_SIG" ] && [ -s "sigs/$WIN_SIG" ]; then
+              echo "三个平台签名均已下载（第 $i 次尝试）"
               break
             fi
             echo "assets 未就绪，10 秒后重试（$i/12）"
             sleep 10
           done
           ls -la sigs/
-          if [ ! -s "sigs/$MAC_SIG" ] || [ ! -s "sigs/$WIN_SIG" ]; then
-            echo "::error::macOS 或 Windows 更新签名缺失"
+          if [ ! -s "sigs/$MAC_ARM_SIG" ] || [ ! -s "sigs/$MAC_INTEL_SIG" ] || [ ! -s "sigs/$WIN_SIG" ]; then
+            echo "::error::Apple Silicon、Intel macOS 或 Windows 更新签名缺失"
             exit 1
           fi
 
@@ -140,6 +145,12 @@ jobs:
           if APP_GZ in asset_names and APP_GZ_SIG in asset_names:
               sig = open(f"sigs/{APP_GZ_SIG}").read().strip()
               platforms["darwin-aarch64"] = {"signature": sig, "url": f"{base_url}/{APP_GZ}"}
+          # macOS Intel：与 Apple Silicon 相同，更新包使用 app.tar.gz。
+          INTEL_APP_GZ = "TokenMeter_x64.app.tar.gz"
+          INTEL_APP_GZ_SIG = INTEL_APP_GZ + ".sig"
+          if INTEL_APP_GZ in asset_names and INTEL_APP_GZ_SIG in asset_names:
+              sig = open(f"sigs/{INTEL_APP_GZ_SIG}").read().strip()
+              platforms["darwin-x86_64"] = {"signature": sig, "url": f"{base_url}/{INTEL_APP_GZ}"}
           # Windows x64：NSIS exe（Tauri v2 updater 优先 NSIS）+ 对应 .sig
           EXE = f"TokenMeter_{version}_x64-setup.exe"
           EXE_SIG = EXE + ".sig"
@@ -147,7 +158,7 @@ jobs:
               sig = open(f"sigs/{EXE_SIG}").read().strip()
               platforms["windows-x86_64"] = {"signature": sig, "url": f"{base_url}/{EXE}"}
 
-          expected = {"darwin-aarch64", "windows-x86_64"}
+          expected = {"darwin-aarch64", "darwin-x86_64", "windows-x86_64"}
           if set(platforms) != expected:
               missing = sorted(expected - set(platforms))
               raise SystemExit(f"missing updater platforms: {missing}; assets={sorted(asset_names)}")
@@ -190,7 +201,7 @@ jobs:
           for i in 1 2 3 4 5 6; do
             if curl -fsSL "$URL" -o published-latest.json \
               && jq -e --arg version "$VERSION" \
-                '.version == $version and (.platforms | keys | sort) == ["darwin-aarch64", "windows-x86_64"] and all(.platforms[].url; contains("/releases/download/'"$TAG"'/"))' \
+                '.version == $version and (.platforms | keys | sort) == ["darwin-aarch64", "darwin-x86_64", "windows-x86_64"] and all(.platforms[].url; contains("/releases/download/'"$TAG"'/"))' \
                 published-latest.json >/dev/null; then
               break
             fi
@@ -198,7 +209,7 @@ jobs:
             sleep 10
           done
           jq -e --arg version "$VERSION" \
-            '.version == $version and (.platforms | keys | sort) == ["darwin-aarch64", "windows-x86_64"] and all(.platforms[].url; contains("/releases/download/'"$TAG"'/"))' \
+            '.version == $version and (.platforms | keys | sort) == ["darwin-aarch64", "darwin-x86_64", "windows-x86_64"] and all(.platforms[].url; contains("/releases/download/'"$TAG"'/"))' \
             published-latest.json >/dev/null
           jq -r '.platforms[].url' published-latest.json | while IFS= read -r asset_url; do
             curl -fsSIL "$asset_url" >/dev/null

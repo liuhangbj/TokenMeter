@@ -54,6 +54,7 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 | 平台 | 文件 |
 |------|------|
 | macOS (Apple Silicon) | `TokenMeter_x.x.x_aarch64.dmg` |
+| macOS (Intel) | `TokenMeter_x.x.x_x64.dmg` |
 | Windows (MSI) | `TokenMeter_x.x.x_x64_en-US.msi` |
 | Windows (NSIS) | `TokenMeter_x.x.x_x64-setup.exe` |
 
