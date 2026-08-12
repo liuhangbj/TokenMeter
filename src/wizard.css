@@ -1,10 +1,6 @@
 /* 添加供应商与认证流程：沿用主面板的 Polar Silver 设计语言。 */
 
 .wizard {
-  --plan-accent: #d98527;
-  --plan-soft: #fff4e7;
-  --api-accent: #2f82df;
-  --api-soft: #edf6ff;
   width: 100%;
   min-height: 100%;
   color: var(--text-1);
@@ -355,16 +351,22 @@
 .manual-oauth .auth-hint { margin: 0; }
 .manual-code-actions { margin: -2px 0 1px; }
 
-@media (prefers-color-scheme: dark) {
-  .wizard {
-    --plan-accent: #f0aa55;
-    --plan-soft: rgba(217, 133, 39, 0.12);
-    --api-accent: #79b7f6;
-    --api-soft: rgba(47, 130, 223, 0.12);
-  }
-  .wizard-header { background: var(--header-bg); }
-  .provider-type-icon,
-  .account-type-chip { border-color: color-mix(in srgb, currentColor 45%, transparent); }
-  .form-field input,
-  .form-field select { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18); }
+html[data-theme="cyberpunk"] .wizard-header { background: var(--header-bg); }
+html[data-theme="cyberpunk"] .provider-type-icon,
+html[data-theme="cyberpunk"] .account-type-chip {
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+html[data-theme="cyberpunk"] .form-field input,
+html[data-theme="cyberpunk"] .form-field select {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="classic"][data-appearance="dark"] .wizard-header { background: var(--header-bg); }
+html[data-theme="classic"][data-appearance="dark"] .provider-type-icon,
+html[data-theme="classic"][data-appearance="dark"] .account-type-chip {
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+html[data-theme="classic"][data-appearance="dark"] .form-field input,
+html[data-theme="classic"][data-appearance="dark"] .form-field select {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
 }

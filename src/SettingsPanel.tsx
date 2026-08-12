@@ -9,12 +9,16 @@ import {
   installAndRelaunch,
   type UpdateState,
 } from "./updater";
+import type { AppAppearance, AppTheme } from "./types";
+import { applyTheme } from "./themeRuntime";
 
 interface Settings {
   launch_at_login: boolean;
   refresh_interval_secs: number;
   card_order: string[];
   account_nicknames: Record<string, string>;
+  theme: AppTheme;
+  appearance: AppAppearance;
 }
 
 const INTERVAL_LABELS: Record<number, string> = {
@@ -34,7 +38,12 @@ export function SettingsPanel() {
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: "idle" });
 
   useEffect(() => {
-    invoke<Settings>("get_settings").then(setSettings).catch(console.error);
+    invoke<Settings>("get_settings").then((value) => {
+      const theme = value.theme ?? "classic";
+      const appearance = value.appearance ?? "system";
+      applyTheme(theme, appearance);
+      setSettings({ ...value, theme, appearance });
+    }).catch(console.error);
     invoke<number[]>("interval_options").then(setOptions).catch(console.error);
     getVersion().then(setAppVersion).catch(console.error);
     return subscribeUpdate(setUpdateState);
@@ -44,16 +53,22 @@ export function SettingsPanel() {
     if (!settings) return;
     const previous = settings;
     const next = { ...settings, ...patch };
+    if (patch.theme || patch.appearance) {
+      applyTheme(next.theme, next.appearance);
+    }
     setSettings(next); // 乐观更新
     setSaving(true);
     try {
       const saved = await invoke<Settings>("set_general_settings", {
         launchAtLogin: next.launch_at_login,
         refreshIntervalSecs: next.refresh_interval_secs,
+        theme: next.theme,
+        appearance: next.appearance,
       });
       setSettings(saved);
     } catch (e) {
       console.error("保存设置失败", e);
+      applyTheme(previous.theme, previous.appearance);
       setSettings(previous);
     } finally {
       setSaving(false);
@@ -69,7 +84,9 @@ export function SettingsPanel() {
       case "none": return "已是最新版本";
       case "available": return `下载 v${updateState.version}`;
       case "downloading": return `下载中 ${updateState.percent}%`;
-      case "ready": return "重启完成更新";
+      case "ready": return "升级并重启";
+      case "installing": return "正在升级…";
+      case "install_error": return "重试升级";
       case "error": return "重试检查更新";
     }
   })();
@@ -80,6 +97,7 @@ export function SettingsPanel() {
         await download();
         break;
       case "ready":
+      case "install_error":
         await installAndRelaunch();
         break;
       default:
@@ -87,7 +105,9 @@ export function SettingsPanel() {
     }
   };
 
-  const busy = updateState.kind === "checking" || updateState.kind === "downloading";
+  const busy = updateState.kind === "checking"
+    || updateState.kind === "downloading"
+    || updateState.kind === "installing";
 
   return (
     <div className="settings">
@@ -100,6 +120,53 @@ export function SettingsPanel() {
         />
         <span>开机自动启动</span>
       </label>
+
+      <div className="settings-theme-row">
+        <span className="settings-label">界面主题</span>
+        <span className="theme-switch" role="group" aria-label="界面主题">
+          <button
+            type="button"
+            className={settings.theme === "classic" ? "active" : ""}
+            onClick={() => update({ theme: "classic" })}
+            disabled={saving}
+          >
+            Classic
+          </button>
+          <button
+            type="button"
+            className={settings.theme === "parchment" ? "active" : ""}
+            onClick={() => update({ theme: "parchment" })}
+            disabled={saving}
+          >
+            Claude
+          </button>
+          <button
+            type="button"
+            className={settings.theme === "cyberpunk" ? "active" : ""}
+            onClick={() => update({ theme: "cyberpunk" })}
+            disabled={saving}
+          >
+            Cyber
+          </button>
+        </span>
+      </div>
+
+      <div className="settings-theme-row appearance-row">
+        <span className="settings-label">明暗外观</span>
+        <span className="appearance-switch" role="group" aria-label="明暗外观">
+          {(["system", "light", "dark"] as const).map((appearance) => (
+            <button
+              key={appearance}
+              type="button"
+              className={settings.appearance === appearance ? "active" : ""}
+              onClick={() => update({ appearance })}
+              disabled={saving}
+            >
+              {appearance === "system" ? "系统" : appearance === "light" ? "浅色" : "深色"}
+            </button>
+          ))}
+        </span>
+      </div>
 
       <label className="settings-row">
         <span className="settings-label">后台刷新间隔</span>

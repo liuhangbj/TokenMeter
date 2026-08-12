@@ -1,0 +1,564 @@
+/*
+ * Parchment / Claude × Kami
+ * Kami 的暖纸与排版秩序，Claude 的陶土橙高亮。浅深色共享同一套组件语言。
+ */
+
+html[data-theme="parchment"] {
+  --font-display: "Literata Variable", "Songti SC", "STSong", SimSun,
+    "Noto Serif CJK SC", Georgia, serif;
+  --font-body: "Literata Variable", "PingFang SC", "Microsoft YaHei UI", serif;
+  --font-data: "Literata Variable", "Songti SC", "STSong", SimSun,
+    "Noto Serif CJK SC", Georgia, serif;
+  --font-mono: var(--font-data);
+
+  --paper-fiber: rgba(82, 76, 62, 0.025);
+  --paper-grain: rgba(78, 68, 51, 0.018);
+  --paper-wash: rgba(217, 119, 87, 0.045);
+}
+
+/* Light — Kami warm paper, Claude terracotta accent. */
+html[data-theme="parchment"][data-appearance="light"] {
+  color-scheme: light;
+
+  --lv1: #5f9879;
+  --lv2: #3f775f;
+  --lv3: #b47a38;
+  --lv4: #bd6655;
+  --lv5: #91453f;
+  --good: #3f775f;
+  --warn: #b47a38;
+  --bad: #bd6655;
+  --danger: #a84f46;
+  --stale: #8b8982;
+
+  --bg: #f5f4ed;
+  --surface: #efede5;
+  --surface-2: #f8f7f2;
+  --card: #faf9f5;
+  --border: #e8e6dc;
+  --border-strong: #d9d6ca;
+  --text-1: #141413;
+  --text-2: #504e49;
+  --text-3: #77756f;
+  --cool-reflection: rgba(27, 54, 93, 0.025);
+  --warm-reflection: rgba(217, 119, 87, 0.055);
+  --theme-accent: #d97757;
+  --theme-accent-2: #b75e42;
+  --theme-glow: rgba(217, 119, 87, 0.14);
+
+  --panel-top: #f8f7f2;
+  --panel-bottom: #f2f0e8;
+  --header-bg: rgba(250, 249, 245, 0.94);
+  --card-top: #faf9f5;
+  --card-bottom: #faf9f5;
+  --raised-bg: #faf9f5;
+  --hover-bg: #f0eee6;
+  --control-bg: #e8e6dc;
+  --control-strong-bg: #faf9f5;
+  --settings-bg: #efede5;
+  --separator: #e5e3d8;
+  --track: #e7e4da;
+  --track-edge: rgba(255, 255, 255, 0.7);
+  --inner-highlight: rgba(255, 255, 255, 0.72);
+  --inner-highlight-soft: rgba(255, 255, 255, 0.42);
+  --panel-shadow-contact: rgba(44, 40, 31, 0.06);
+  --panel-shadow-depth: rgba(44, 40, 31, 0.13);
+  --card-shadow-contact: rgba(38, 35, 28, 0.04);
+  --card-shadow-depth: rgba(38, 35, 28, 0.07);
+  --card-shadow-hover: rgba(38, 35, 28, 0.1);
+  --scroll-thumb: rgba(80, 78, 73, 0.22);
+
+  --primary-start: #d97757;
+  --primary-end: #c9684a;
+  --primary-border: rgba(160, 76, 51, 0.26);
+  --primary-shadow: rgba(153, 77, 53, 0.16);
+  --plan-accent: #a66b2f;
+  --plan-soft: #f5ebdc;
+  --api-accent: #536d7c;
+  --api-soft: #e8edef;
+  --bar-lv1-start: #7daf93;
+  --bar-lv2-start: #5a8c72;
+  --bar-lv3-start: #c89a61;
+  --bar-lv4-start: #cd7c6c;
+
+  --tier-free-text: #6b6963;
+  --tier-free-bg: #efeee8;
+  --tier-free-border: #dedcd3;
+  --tier-1-text: #49725d;
+  --tier-1-bg: #e8f0ea;
+  --tier-1-border: #d3e2d7;
+  --tier-2-text: #3f617a;
+  --tier-2-bg: #e8eef2;
+  --tier-2-border: #d2dfe6;
+  --tier-3-text: #725d81;
+  --tier-3-bg: #eeeaf1;
+  --tier-3-border: #ded4e4;
+  --tier-4-text: #9d5b2d;
+  --tier-4-bg: #f5e9dd;
+  --tier-4-border: #e9d1bd;
+  --tier-5-text: #94505f;
+  --tier-5-bg: #f3e7e9;
+  --tier-5-border: #e4ced3;
+  --tier-neutral-bg: #efeee8;
+}
+
+/* Dark — Kami warm charcoal, with a softened Claude accent. */
+html[data-theme="parchment"][data-appearance="dark"] {
+  color-scheme: dark;
+
+  --paper-fiber: rgba(232, 225, 205, 0.018);
+  --paper-grain: rgba(246, 239, 217, 0.012);
+  --paper-wash: rgba(225, 139, 110, 0.04);
+  --lv1: #7ca88e;
+  --lv2: #5e8b73;
+  --lv3: #c49459;
+  --lv4: #cd7868;
+  --lv5: #a95049;
+  --good: #6b987f;
+  --warn: #c49459;
+  --bad: #cd7868;
+  --danger: #bd655b;
+  --stale: #77766f;
+
+  --bg: #141413;
+  --surface: #232321;
+  --surface-2: #292927;
+  --card: #30302e;
+  --border: #3d3c38;
+  --border-strong: #4d4b45;
+  --text-1: #f5f4ed;
+  --text-2: #c2c0b7;
+  --text-3: #8c8a82;
+  --cool-reflection: rgba(45, 90, 138, 0.025);
+  --warm-reflection: rgba(225, 139, 110, 0.05);
+  --theme-accent: #e18b6e;
+  --theme-accent-2: #c76f53;
+  --theme-glow: rgba(225, 139, 110, 0.14);
+
+  --panel-top: #1d1d1b;
+  --panel-bottom: #141413;
+  --header-bg: rgba(30, 30, 28, 0.94);
+  --card-top: #30302e;
+  --card-bottom: #30302e;
+  --raised-bg: #383835;
+  --hover-bg: #353532;
+  --control-bg: #292927;
+  --control-strong-bg: #363633;
+  --settings-bg: #232321;
+  --separator: #3a3935;
+  --track: #44433f;
+  --track-edge: rgba(255, 251, 237, 0.035);
+  --inner-highlight: rgba(255, 251, 237, 0.06);
+  --inner-highlight-soft: rgba(255, 251, 237, 0.03);
+  --panel-shadow-contact: rgba(0, 0, 0, 0.24);
+  --panel-shadow-depth: rgba(0, 0, 0, 0.44);
+  --card-shadow-contact: rgba(0, 0, 0, 0.12);
+  --card-shadow-depth: rgba(0, 0, 0, 0.2);
+  --card-shadow-hover: rgba(0, 0, 0, 0.28);
+  --scroll-thumb: rgba(213, 208, 192, 0.18);
+
+  --primary-start: #e18b6e;
+  --primary-end: #c76f53;
+  --primary-border: rgba(237, 161, 135, 0.26);
+  --primary-shadow: rgba(168, 76, 51, 0.2);
+  --plan-accent: #d1a064;
+  --plan-soft: #40382f;
+  --api-accent: #8ca7b5;
+  --api-soft: #30393d;
+  --bar-lv1-start: #91b6a0;
+  --bar-lv2-start: #75a088;
+  --bar-lv3-start: #d1a970;
+  --bar-lv4-start: #d98e80;
+
+  --tier-free-text: #aaa89f;
+  --tier-free-bg: #3a3936;
+  --tier-free-border: #4a4944;
+  --tier-1-text: #99b9a5;
+  --tier-1-bg: #334039;
+  --tier-1-border: #46584e;
+  --tier-2-text: #9eb8c8;
+  --tier-2-bg: #333e45;
+  --tier-2-border: #465660;
+  --tier-3-text: #c0acc9;
+  --tier-3-bg: #403843;
+  --tier-3-border: #584b5c;
+  --tier-4-text: #d9ad78;
+  --tier-4-bg: #453a30;
+  --tier-4-border: #5d4b3c;
+  --tier-5-text: #d6a1aa;
+  --tier-5-bg: #44363a;
+  --tier-5-border: #5c494f;
+  --tier-neutral-bg: #3a3936;
+}
+
+html[data-theme="parchment"] [data-brand] {
+  --accent: color-mix(in srgb, var(--brand-accent-light, #d97757) 72%, var(--text-2));
+  --accent-2: color-mix(in srgb, var(--brand-accent-alt-light, #b75e42) 66%, var(--text-2));
+}
+html[data-theme="parchment"][data-appearance="dark"] [data-brand] {
+  --accent: color-mix(
+    in srgb,
+    var(--brand-accent-dark, var(--brand-accent-light, #e18b6e)) 58%,
+    var(--text-1)
+  );
+  --accent-2: color-mix(
+    in srgb,
+    var(--brand-accent-alt-dark, var(--brand-accent-alt-light, #c76f53)) 60%,
+    var(--text-2)
+  );
+}
+
+html[data-theme="parchment"] body { font-family: var(--font-body); }
+html[data-theme="parchment"] .popover-title,
+html[data-theme="parchment"] .card-name,
+html[data-theme="parchment"] .wizard-title,
+html[data-theme="parchment"] .vendor-name,
+html[data-theme="parchment"] .auth-product-name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+html[data-theme="parchment"] .popover-title { font-size: 17.5px; }
+html[data-theme="parchment"] .card-name,
+html[data-theme="parchment"] .vendor-name { font-size: 15.5px; }
+html[data-theme="parchment"] .tnum,
+html[data-theme="parchment"] .account-label,
+html[data-theme="parchment"] .updated-at,
+html[data-theme="parchment"] .wrow-reset,
+html[data-theme="parchment"] .wrow-pct,
+html[data-theme="parchment"] .settings-version,
+html[data-theme="parchment"] input,
+html[data-theme="parchment"] select {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+html[data-theme="parchment"] .popover {
+  background:
+    radial-gradient(ellipse 70% 35% at 100% 0%, var(--warm-reflection), transparent 72%),
+    linear-gradient(155deg, var(--panel-top), var(--bg) 57%, var(--panel-bottom));
+  border-color: var(--border-strong);
+  border-radius: 14px;
+  clip-path: inset(0 round 14px);
+  box-shadow:
+    0 1px 0 var(--inner-highlight),
+    0 12px 34px var(--panel-shadow-depth);
+}
+html[data-theme="parchment"] .popover::before {
+  opacity: 1;
+  background:
+    repeating-linear-gradient(2deg, transparent 0 23px, var(--paper-fiber) 24px, transparent 25px),
+    radial-gradient(circle at 15% 28%, var(--paper-grain) 0 0.6px, transparent 0.75px),
+    radial-gradient(circle at 76% 68%, var(--paper-grain) 0 0.55px, transparent 0.7px);
+  background-size: auto, 21px 23px, 27px 31px;
+}
+html[data-theme="parchment"] .popover::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  inset: 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 10px;
+}
+
+html[data-theme="parchment"] .popover-head,
+html[data-theme="parchment"] .wizard-header {
+  position: relative;
+  min-height: 55px;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+  box-shadow: none;
+}
+html[data-theme="parchment"] .popover-head::after,
+html[data-theme="parchment"] .wizard-header::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  bottom: -1px;
+  width: 30px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--theme-accent);
+  opacity: 0.9;
+}
+html[data-theme="parchment"] .popover-mark {
+  filter: drop-shadow(0 1px 0 var(--inner-highlight));
+}
+
+html[data-theme="parchment"] .icon-btn,
+html[data-theme="parchment"] .wizard-back,
+html[data-theme="parchment"] .sort-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--control-bg);
+  box-shadow: 0 1px 0 var(--inner-highlight-soft);
+}
+html[data-theme="parchment"] .icon-btn svg,
+html[data-theme="parchment"] .wizard-back svg { stroke-width: 1.55; }
+html[data-theme="parchment"] .icon-btn:hover,
+html[data-theme="parchment"] .wizard-back:hover,
+html[data-theme="parchment"] .sort-btn:hover:not(:disabled) {
+  color: var(--theme-accent);
+  border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--theme-accent) 7%, var(--control-bg));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 7%, transparent);
+}
+
+html[data-theme="parchment"] .card,
+html[data-theme="parchment"] .vendor-group,
+html[data-theme="parchment"] .auth-product {
+  border-color: transparent;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 5px 16px var(--card-shadow-depth);
+}
+html[data-theme="parchment"] .card:hover,
+html[data-theme="parchment"] .vendor-group:hover,
+html[data-theme="parchment"] .vendor-group.expanded {
+  transform: translateY(-1px);
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 20%, var(--border)),
+    0 8px 22px var(--card-shadow-hover);
+}
+html[data-theme="parchment"] .card::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
+}
+html[data-theme="parchment"] .card::after {
+  background: radial-gradient(circle at 0 0, color-mix(in srgb, var(--accent) 5%, transparent), transparent 28%);
+}
+
+html[data-theme="parchment"] .brand-icon,
+html[data-theme="parchment"] .vendor-brand,
+html[data-theme="parchment"] .auth-product-brand,
+html[data-theme="parchment"] .provider-type-icon {
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--raised-bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  box-shadow: 0 2px 7px var(--card-shadow-depth);
+}
+
+html[data-theme="parchment"] .plan-badge {
+  --bookmark-paper: var(--tier-neutral-bg);
+  --bookmark-border: var(--border);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 23px;
+  padding: 4px 9px 4px 14px;
+  border-color: var(--bookmark-border);
+  border-radius: 3px 7px 7px 3px;
+  background:
+    repeating-linear-gradient(
+      2deg,
+      transparent 0 5px,
+      color-mix(in srgb, currentColor 3.5%, transparent) 6px,
+      transparent 7px
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--raised-bg) 22%, var(--bookmark-paper)),
+      var(--bookmark-paper) 58%,
+      color-mix(in srgb, currentColor 5%, var(--bookmark-paper))
+    );
+  font-family: var(--font-body);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.012em;
+  line-height: 1.25;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 var(--inner-highlight-soft),
+    0 2px 5px var(--card-shadow-depth);
+}
+html[data-theme="parchment"] .plan-badge::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border: 1px solid color-mix(in srgb, currentColor 38%, var(--bookmark-border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card) 72%, var(--bookmark-paper));
+  box-shadow: inset 0 1px 1px color-mix(in srgb, var(--text-1) 12%, transparent);
+  transform: translateY(-50%);
+}
+html[data-theme="parchment"] .plan-badge::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  height: 7px;
+  background: linear-gradient(
+    135deg,
+    transparent 49%,
+    color-mix(in srgb, currentColor 15%, var(--bookmark-paper)) 50%
+  );
+  opacity: 0.72;
+}
+html[data-theme="parchment"] .plan-badge.tier-free {
+  --bookmark-paper: var(--tier-free-bg);
+  --bookmark-border: var(--tier-free-border);
+}
+html[data-theme="parchment"] .plan-badge.tier-1 {
+  --bookmark-paper: var(--tier-1-bg);
+  --bookmark-border: var(--tier-1-border);
+}
+html[data-theme="parchment"] .plan-badge.tier-2 {
+  --bookmark-paper: var(--tier-2-bg);
+  --bookmark-border: var(--tier-2-border);
+}
+html[data-theme="parchment"] .plan-badge.tier-3 {
+  --bookmark-paper: var(--tier-3-bg);
+  --bookmark-border: var(--tier-3-border);
+}
+html[data-theme="parchment"] .plan-badge.tier-4 {
+  --bookmark-paper: var(--tier-4-bg);
+  --bookmark-border: var(--tier-4-border);
+}
+html[data-theme="parchment"] .plan-badge.tier-5 {
+  --bookmark-paper: var(--tier-5-bg);
+  --bookmark-border: var(--tier-5-border);
+}
+html[data-theme="parchment"] .plan-badge.tier-neutral {
+  --bookmark-paper: var(--tier-neutral-bg);
+  --bookmark-border: var(--border);
+}
+html[data-theme="parchment"] .account-type-chip {
+  border-radius: 5px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+}
+html[data-theme="parchment"] .status-dot {
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 8%, transparent);
+}
+html[data-theme="parchment"] .balance-hero {
+  font-family: var(--font-data);
+  font-size: 29px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  color: var(--text-1);
+  text-shadow: none;
+}
+html[data-theme="parchment"] .balance-sub,
+html[data-theme="parchment"] .wrow-label { font-family: var(--font-body); }
+
+html[data-theme="parchment"] .bar {
+  position: relative;
+  height: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--track);
+  box-shadow:
+    inset 0 1px 2px color-mix(in srgb, var(--text-1) 7%, transparent),
+    0 1px 0 var(--track-edge);
+}
+html[data-theme="parchment"] .bar > i { border-radius: 999px; }
+html[data-theme="parchment"] .bar > i::after {
+  background: linear-gradient(180deg, rgba(255,255,255,.18), transparent 55%);
+}
+
+html[data-theme="parchment"] .settings,
+html[data-theme="parchment"] .manual-oauth {
+  border-radius: 9px;
+  background: var(--settings-bg);
+  border-color: var(--border);
+  box-shadow: 0 1px 0 var(--inner-highlight-soft);
+}
+html[data-theme="parchment"] .update-notice {
+  border-radius: 9px;
+  background:
+    repeating-linear-gradient(2deg, transparent 0 8px, var(--paper-fiber) 9px, transparent 10px),
+    color-mix(in srgb, var(--theme-accent) 5%, var(--card));
+  font-family: var(--font-body);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 8%, var(--border)), 0 4px 12px var(--card-shadow-depth);
+}
+html[data-theme="parchment"] .update-notice-mark,
+html[data-theme="parchment"] .update-notice button {
+  border-radius: 7px;
+  font-family: var(--font-body);
+}
+html[data-theme="parchment"] .theme-switch,
+html[data-theme="parchment"] .appearance-switch,
+html[data-theme="parchment"] .settings-row select {
+  border-radius: 7px;
+  background: var(--control-bg);
+  border-color: var(--border);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-1) 5%, transparent);
+}
+html[data-theme="parchment"] .theme-switch button,
+html[data-theme="parchment"] .appearance-switch button {
+  border-radius: 5px;
+  font-family: var(--font-body);
+}
+html[data-theme="parchment"] .theme-switch button.active,
+html[data-theme="parchment"] .appearance-switch button.active {
+  color: var(--theme-accent);
+  background: var(--raised-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 10%, var(--border));
+}
+
+html[data-theme="parchment"] .btn,
+html[data-theme="parchment"] .settings-update-btn,
+html[data-theme="parchment"] .settings-quit-btn,
+html[data-theme="parchment"] .device-actions button {
+  border-radius: 8px;
+  font-family: var(--font-body);
+  box-shadow: 0 1px 0 var(--inner-highlight-soft);
+}
+html[data-theme="parchment"] .btn.primary {
+  background: var(--theme-accent);
+  color: #fffaf5;
+  text-shadow: none;
+  box-shadow: 0 0 0 1px var(--primary-border), 0 4px 10px var(--primary-shadow);
+}
+html[data-theme="parchment"] .btn:hover,
+html[data-theme="parchment"] .settings-update-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--theme-accent) 30%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 6%, transparent);
+}
+
+html[data-theme="parchment"] .form-field input,
+html[data-theme="parchment"] .form-field select {
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--control-strong-bg);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-1) 5%, transparent);
+}
+html[data-theme="parchment"] .form-field input:focus,
+html[data-theme="parchment"] .form-field select:focus {
+  border-color: color-mix(in srgb, var(--theme-accent) 60%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 10%, transparent);
+}
+html[data-theme="parchment"] .auth-hint {
+  border-left-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 5%, var(--control-bg));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="parchment"] *,
+  html[data-theme="parchment"] *::before,
+  html[data-theme="parchment"] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

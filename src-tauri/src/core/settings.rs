@@ -14,6 +14,24 @@ pub const DEFAULT_INTERVAL_SECS: u64 = 300;
 /// 可选间隔档位（秒），供前端下拉
 pub const INTERVAL_OPTIONS: &[u64] = &[60, 180, 300, 600, 900, 1800];
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Classic,
+    Parchment,
+    Cyberpunk,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub launch_at_login: bool,
@@ -24,6 +42,12 @@ pub struct Settings {
     /// 账号昵称：key 为账号实例 ID。空/缺失时，前端回退到平台返回的邮箱或 ID。
     #[serde(default)]
     pub account_nicknames: HashMap<String, String>,
+    /// 显式视觉主题。经典主题延续原有 Polar Silver 并跟随系统明暗模式。
+    #[serde(default)]
+    pub theme: Theme,
+    /// 主题的明暗外观独立于风格；system 会实时跟随操作系统。
+    #[serde(default)]
+    pub appearance: Appearance,
 }
 
 impl Default for Settings {
@@ -33,6 +57,8 @@ impl Default for Settings {
             refresh_interval_secs: DEFAULT_INTERVAL_SECS,
             card_order: Vec::new(),
             account_nicknames: HashMap::new(),
+            theme: Theme::default(),
+            appearance: Appearance::default(),
         }
     }
 }
@@ -91,6 +117,8 @@ mod tests {
         .expect("legacy settings should deserialize");
 
         assert!(settings.account_nicknames.is_empty());
+        assert_eq!(settings.theme, super::Theme::Classic);
+        assert_eq!(settings.appearance, super::Appearance::System);
     }
 
     #[test]

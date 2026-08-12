@@ -35,6 +35,7 @@ fn account_label_from_credential(cred: &Credential) -> Option<String> {
     string_field(data, "account_label")
         .map(str::to_string)
         .or_else(|| string_field(data, "account_id").map(str::to_string))
+        .or_else(|| string_field(data, "access_key").map(|id| format!("Access Key {id}")))
         .or_else(|| string_field(data, "secret_id").map(|id| format!("SecretId {id}")))
         .or_else(|| string_field(data, "api_key").map(|key| compact_identifier("API Key", key, 4)))
 }

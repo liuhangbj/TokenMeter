@@ -59,13 +59,13 @@ jobs:
           tagName: v__VERSION__
           releaseName: "TokenMeter v__VERSION__"
           releaseBody: |
-            - 新增 Claude 套餐 OAuth / 本机凭证导入与 Anthropic API 成本、Token 用量
-            - 新增 OpenRouter OAuth / API Key、Credits 余额与 Key 预算
-            - 新增 GLM Coding Plan、GLM API 现金余额与 Token/次数资源包
-            - 新增 MiniMax Token Plan 与 MiniMax API 国际/国内站余额
-            - 添加供应商统一按厂商折叠 Plan / API 产品，支持 API Key 本机凭证导入
-            - 套餐主值统一显示剩余百分比，Token/请求数改用 K/M/B/T 紧凑格式
-            - 设置面板显示当前版本号
+            - 新增 Gemini Code Assist：Google OAuth / 本机 Gemini CLI、模型额度和 AI Credits
+            - 新增火山引擎 API：可用、现金、信用、冻结与欠费余额
+            - 新增 SiliconFlow 国内站/国际站：总余额、充值余额与赠送余额
+            - 新增 Classic、Claude、Cyber 三套完整主题，均支持浅色、深色和跟随系统
+            - Claude 主题加入 Literata 书面字体与书签式会员标签，Cyber 加入完整科技光影体系
+            - 重绘应用图标、macOS 菜单栏图标和 Windows 彩色托盘图标
+            - 自动更新后台定时检查和下载，由用户点击“升级并重启”，失败时保留重试入口
 
             macOS 提供 Apple Silicon 与 Intel DMG，Windows 提供 x64 安装包。
           releaseDraft: true

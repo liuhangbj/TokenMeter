@@ -4,12 +4,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { AccountCardModel } from "./types";
+import type { AccountCardModel, AppAppearance, AppTheme } from "./types";
 import { ProviderCard } from "./ProviderCard";
 import { SettingsPanel } from "./SettingsPanel";
 import { AddProvider } from "./AddProvider";
-import { autoCheckOnLaunch } from "./updater";
+import {
+  currentUpdateState,
+  installAndRelaunch,
+  startUpdateMonitoring,
+  subscribeUpdate,
+  type UpdateState,
+} from "./updater";
+import { UpdateNotice } from "./UpdateNotice";
 import { IconSettings, IconSort, IconCheck, IconRefresh, IconGauge } from "./icons";
+import {
+  applyTheme, readStoredAppearance, readStoredTheme, subscribeSystemAppearance,
+} from "./themeRuntime";
 
 /** 与后端 PANEL_W / PANEL_H 保持一致。 */
 const PANEL_WIDTH = 380;
@@ -24,6 +34,8 @@ interface Settings {
   refresh_interval_secs: number;
   card_order: string[];
   account_nicknames: Record<string, string>;
+  theme: AppTheme;
+  appearance: AppAppearance;
 }
 
 export function resolveAccountName(
@@ -96,6 +108,7 @@ export default function App() {
   const [configured, setConfigured] = useState(false); // 是否已配置过 provider
   const [gotUpdate, setGotUpdate] = useState(false);    // 是否收到过一次刷新完成事件
   const [view, setView] = useState<"home" | "add">("home"); // 内嵌视图：主面板 / 添加供应商
+  const [updateState, setUpdateState] = useState<UpdateState>(currentUpdateState());
 
   // 固定区（标题 + 设置）不参与滚动；内容区独立滚动。窗口仍按两区自然高度
   // 自适应收缩，超过 800px 时只压缩内容区。Windows 保持固定外层高度，
@@ -148,11 +161,20 @@ export default function App() {
   useEffect(() => {
     invoke<Settings>("get_settings")
       .then((s) => {
-        setSettings(s);
+        const theme = s.theme ?? "classic";
+        const appearance = s.appearance ?? "system";
+        applyTheme(theme, appearance);
+        setSettings({ ...s, theme, appearance });
         setCustomOrder(s.card_order ?? []);
       })
       .catch(console.error);
   }, []);
+
+  useEffect(() => subscribeSystemAppearance(() => {
+    const appearance = readStoredAppearance();
+    if (appearance !== "system") return;
+    applyTheme(readStoredTheme(), appearance);
+  }), []);
 
   const load = useCallback(async () => {
     try {
@@ -177,19 +199,9 @@ export default function App() {
     load();
   }, [load]);
 
-  // 静默检查更新（有新版则后台自动下载，设置区可见"重启完成更新"）。
-  // 面板窗口按需重建（纯菜单栏架构），每次打开都会重新加载前端，
-  // 用 localStorage 防抖：24 小时内只检查一次，避免频繁请求 GitHub。
-  useEffect(() => {
-    const KEY = "tm_last_update_check";
-    const now = Date.now();
-    const last = Number(localStorage.getItem(KEY) ?? 0);
-    if (now - last > 24 * 3600 * 1000) {
-      autoCheckOnLaunch().then((success) => {
-        if (success) localStorage.setItem(KEY, String(Date.now()));
-      });
-    }
-  }, []);
+  // 检查与下载在后台完成；安装和重启必须由用户点击确认。
+  useEffect(() => subscribeUpdate(setUpdateState), []);
+  useEffect(() => startUpdateMonitoring(), []);
 
   useEffect(() => {
     const onVisible = () => {
@@ -357,6 +369,11 @@ export default function App() {
                 </span>
               </button>
             </div>
+
+            <UpdateNotice
+              state={updateState}
+              onInstall={() => void installAndRelaunch()}
+            />
 
             {showSettings && <SettingsPanel />}
           </div>

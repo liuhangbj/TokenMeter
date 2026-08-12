@@ -1,35 +1,40 @@
-/* TokenMeter Polar Silver —— 冰银蓝骨架 + 少量暖灰。 */
+/* TokenMeter 三主题系统：经典 Polar Silver / Claude 式羊皮纸 / 赛博朋克信号终端。 */
 
-:root {
+:root,
+html[data-theme="classic"] {
   color-scheme: light dark;
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "PingFang SC", monospace;
+  --font-display: var(--font-mono);
+  --font-body: var(--font-mono);
+  --font-data: var(--font-mono);
 
-  /* 5 段用量警示色（满=危险，只作用于有百分比上限的额度/套餐包条） */
-  --lv1: #4bc990;  /* <50%   清透绿 */
-  --lv2: #169f76;  /* 50-80  深绿 */
-  --lv3: #d98527;  /* 80-90  琥珀 */
-  --lv4: #d9564c;  /* 90-100 红   */
-  --lv5: #a83432;  /* 用完   深红 */
-
-  /* 语义色 */
+  --lv1: #4bc990;
+  --lv2: #169f76;
+  --lv3: #d98527;
+  --lv4: #d9564c;
+  --lv5: #a83432;
   --good: #169f76;
   --warn: #d98527;
-  --bad:  #d9564c;
-  --stale:#8c98a8;
+  --bad: #d9564c;
+  --danger: #d54941;
+  --stale: #8c98a8;
 
-  /* 全部使用不透明底色，圆角外仍由透明窗口负责。 */
-  --bg:        #f2f5f7;
-  --surface:   #e9eef2;
+  --bg: #f2f5f7;
+  --surface: #e9eef2;
   --surface-2: #f7f9fa;
-  --card:      #fbfcfd;
-  --border:    rgba(72, 91, 115, 0.15);
+  --card: #fbfcfd;
+  --border: rgba(72, 91, 115, 0.15);
   --border-strong: rgba(64, 88, 116, 0.27);
-  --text-1:    #172033;
-  --text-2:    #566277;
-  --text-3:    #8994a5;
+  --text-1: #172033;
+  --text-2: #566277;
+  --text-3: #8994a5;
   --cool-reflection: rgba(160, 210, 244, 0.2);
   --warm-reflection: rgba(250, 215, 177, 0.16);
+  --theme-accent: #169f76;
+  --theme-accent-2: #0c8a6b;
+  --theme-glow: rgba(22, 159, 118, 0.14);
 
-  /* 组件表面与光影：集中定义，确保浅色/深色使用同一结构。 */
   --panel-top: #f8fafb;
   --panel-bottom: #f4f3f1;
   --header-bg: rgba(250, 252, 253, 0.62);
@@ -50,25 +55,44 @@
   --card-shadow-contact: rgba(37, 50, 68, 0.06);
   --card-shadow-depth: rgba(37, 50, 68, 0.075);
   --card-shadow-hover: rgba(37, 50, 68, 0.1);
+  --scroll-thumb: rgba(80, 98, 121, 0.22);
+
+  --primary-start: #2aae80;
+  --primary-end: #148b69;
+  --primary-border: rgba(10, 112, 82, 0.22);
+  --primary-shadow: rgba(20, 139, 105, 0.18);
+  --plan-accent: #d98527;
+  --plan-soft: #fff4e7;
+  --api-accent: #2f82df;
+  --api-soft: #edf6ff;
+  --bar-lv1-start: #58d49a;
+  --bar-lv2-start: #20b184;
+  --bar-lv3-start: #ffb340;
+  --bar-lv4-start: #ff5a4d;
+
+  --tier-free-text: #596780;
+  --tier-free-bg: #f0f3f6;
+  --tier-free-border: #dfe5eb;
+  --tier-1-text: #187459;
+  --tier-1-bg: #e9f6f1;
+  --tier-1-border: #cce9de;
+  --tier-2-text: #2368b8;
+  --tier-2-bg: #eaf3fc;
+  --tier-2-border: #d2e4f7;
+  --tier-3-text: #7552bb;
+  --tier-3-bg: #f2edfb;
+  --tier-3-border: #e0d4f5;
+  --tier-4-text: #a86205;
+  --tier-4-bg: #fff3e2;
+  --tier-4-border: #f2d5a9;
+  --tier-5-text: #ad3b6d;
+  --tier-5-bg: #fcecf2;
+  --tier-5-border: #f0ccd9;
+  --tier-neutral-bg: #f1f4f6;
 }
 
-/* 品牌主色系（每平台一套 --accent / --accent-2，用于卡片左侧渐变条 + 品牌点） */
-[data-brand="openai"]   { --accent: #10a37f; --accent-2: #0c8a6b; }
-[data-brand="codex"]    { --accent: #10a37f; --accent-2: #0c8a6b; }
-[data-brand="kimi"]     { --accent: #303845; --accent-2: #141a22; }
-[data-brand="moonshot"] { --accent: #303845; --accent-2: #141a22; }
-[data-brand="deepseek"] { --accent: #4d6bfe; --accent-2: #3a52e6; }
-[data-brand="tencent"]  { --accent: #0052d9; --accent-2: #0046b8; }
-/* Provider 从后端带入四套品牌色；上面的值只保留为旧数据/调试回退。 */
-[data-brand] {
-  --accent: var(--brand-accent-light, #10a37f);
-  --accent-2: var(--brand-accent-alt-light, #0c8a6b);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
+html[data-theme="classic"][data-appearance="dark"] {
     color-scheme: dark;
-
     --lv1: #4bd5a0;
     --lv2: #24b184;
     --lv3: #e79a3e;
@@ -77,6 +101,7 @@
     --good: #35c997;
     --warn: #e79a3e;
     --bad: #ed6a60;
+    --danger: #ed6a60;
     --stale: #788594;
 
     --bg: #141a20;
@@ -90,6 +115,9 @@
     --text-3: #7d8998;
     --cool-reflection: rgba(91, 128, 184, 0.16);
     --warm-reflection: rgba(203, 135, 70, 0.08);
+    --theme-accent: #35c997;
+    --theme-accent-2: #24b184;
+    --theme-glow: rgba(53, 201, 151, 0.12);
 
     --panel-top: #1c232b;
     --panel-bottom: #13191f;
@@ -111,18 +139,42 @@
     --card-shadow-contact: rgba(0, 0, 0, 0.2);
     --card-shadow-depth: rgba(0, 0, 0, 0.26);
     --card-shadow-hover: rgba(0, 0, 0, 0.34);
-  }
+    --scroll-thumb: rgba(176, 195, 218, 0.22);
 
-  [data-brand="kimi"],
-  [data-brand="moonshot"] {
-    --accent: #c3ccd7;
-    --accent-2: #8f9aa8;
-  }
+    --plan-accent: #f0aa55;
+    --plan-soft: rgba(217, 133, 39, 0.12);
+    --api-accent: #79b7f6;
+    --api-soft: rgba(47, 130, 223, 0.12);
 
-  [data-brand="deepseek"] { --accent: #6f8aff; --accent-2: #4d6bfe; }
-  [data-brand="tencent"]  { --accent: #5c92f2; --accent-2: #3979e6; }
-  [data-brand] {
-    --accent: var(--brand-accent-dark, var(--brand-accent-light, #10a37f));
-    --accent-2: var(--brand-accent-alt-dark, var(--brand-accent-alt-light, #0c8a6b));
-  }
+    --tier-free-text: #c0cad7;
+    --tier-free-bg: rgba(135, 151, 171, 0.15);
+    --tier-free-border: rgba(164, 181, 201, 0.2);
+    --tier-1-text: #83d8ba;
+    --tier-1-bg: rgba(34, 163, 121, 0.14);
+    --tier-1-border: rgba(70, 191, 150, 0.2);
+    --tier-2-text: #8fc4fa;
+    --tier-2-bg: rgba(57, 127, 205, 0.15);
+    --tier-2-border: rgba(93, 159, 231, 0.22);
+    --tier-3-text: #c5adf2;
+    --tier-3-bg: rgba(127, 91, 190, 0.16);
+    --tier-3-border: rgba(160, 125, 221, 0.22);
+    --tier-4-text: #ffc46f;
+    --tier-4-bg: rgba(183, 108, 17, 0.17);
+    --tier-4-border: rgba(226, 146, 46, 0.26);
+    --tier-5-text: #f0a2c0;
+    --tier-5-bg: rgba(173, 59, 109, 0.17);
+    --tier-5-border: rgba(216, 94, 146, 0.24);
+    --tier-neutral-bg: rgba(255, 255, 255, 0.055);
+}
+
+html[data-theme="classic"][data-appearance="light"] { color-scheme: light; }
+
+/* Provider 从后端带入两套品牌色，主题决定取亮色或深色版本。 */
+[data-brand] {
+  --accent: var(--brand-accent-light, #10a37f);
+  --accent-2: var(--brand-accent-alt-light, #0c8a6b);
+}
+html[data-theme="classic"][data-appearance="dark"] [data-brand] {
+  --accent: var(--brand-accent-dark, var(--brand-accent-light, #10a37f));
+  --accent-2: var(--brand-accent-alt-dark, var(--brand-accent-alt-light, #0c8a6b));
 }

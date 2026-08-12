@@ -11,6 +11,7 @@
 
 pub mod oauth_codex;
 pub mod oauth_device;
+pub mod oauth_google;
 pub mod oauth_pkce;
 pub mod providers;
 pub mod scheduler;

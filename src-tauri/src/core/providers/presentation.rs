@@ -85,6 +85,27 @@ impl Brand {
                 accent_dark: "#5c92f2",
                 accent_alt_dark: "#3979e6",
             },
+            Brand::Gemini => BrandStyle {
+                key: "gemini",
+                accent_light: "#4666d5",
+                accent_alt_light: "#9b58c7",
+                accent_dark: "#8ca6ff",
+                accent_alt_dark: "#d18cff",
+            },
+            Brand::SiliconFlow => BrandStyle {
+                key: "siliconflow",
+                accent_light: "#2f6dd5",
+                accent_alt_light: "#704fc7",
+                accent_dark: "#67a2ff",
+                accent_alt_dark: "#a786ff",
+            },
+            Brand::Volcengine => BrandStyle {
+                key: "volcengine",
+                accent_light: "#1769d2",
+                accent_alt_light: "#0aa3a5",
+                accent_dark: "#62a4ff",
+                accent_alt_dark: "#31d5cf",
+            },
         }
     }
 }
@@ -170,6 +191,7 @@ pub enum CurrencyWindowRole {
 pub enum PrimaryWindowSelection {
     HighestPeriod,
     HighestNonCurrency,
+    MostUsed,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -243,15 +265,22 @@ fn primary_window(
     snapshot: &ProviderSnapshot,
     selection: PrimaryWindowSelection,
 ) -> Option<&QuotaWindow> {
-    snapshot
+    let candidates = snapshot
         .windows
         .iter()
         .filter(|window| window.limit.is_some_and(|limit| limit > 0.0))
         .filter(|window| {
             !matches!(selection, PrimaryWindowSelection::HighestNonCurrency)
                 || !is_currency(&window.unit)
-        })
-        .max_by_key(|window| period_priority(window.period))
+        });
+    match selection {
+        PrimaryWindowSelection::MostUsed => candidates.max_by(|a, b| {
+            usage_percent(a)
+                .unwrap_or(0.0)
+                .total_cmp(&usage_percent(b).unwrap_or(0.0))
+        }),
+        _ => candidates.max_by_key(|window| period_priority(window.period)),
+    }
 }
 
 fn primary_currency_value(snapshot: &ProviderSnapshot) -> Option<&QuotaWindow> {
@@ -631,7 +660,7 @@ mod tests {
     #[test]
     fn every_registered_provider_can_emit_the_standard_contract() {
         let providers = registry();
-        assert_eq!(providers.len(), 15);
+        assert_eq!(providers.len(), 18);
 
         for provider in providers {
             let mut source = snapshot(provider.id(), provider.billing_mode());

@@ -2,9 +2,18 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { invoke } from "@tauri-apps/api/core";
+import "@fontsource-variable/oxanium";
+import "@fontsource/share-tech-mono";
+import "./fonts.css";
 import "./theme.css";
 import "./popover.css";
 import "./wizard.css";
+import "./cyberpunk.css";
+import "./parchment.css";
+import { applyTheme, readStoredAppearance, readStoredTheme } from "./themeRuntime";
+
+// 先用上次选择的风格和外观绘制首帧，后端设置加载后再校准，避免面板闪白。
+applyTheme(readStoredTheme(), readStoredAppearance());
 
 // 全局 JS 错误兜底：任何未捕获错误直接把原文显示在页面上（排查空白页），
 // 并同步上报到后端日志（TOKENMETER_LOG_FILE）。

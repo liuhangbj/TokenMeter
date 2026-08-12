@@ -9,6 +9,7 @@ pub mod anthropic_api;
 pub mod claude;
 pub mod codex;
 pub mod deepseek;
+pub mod gemini;
 pub mod glm_api;
 pub mod glm_coding_plan;
 pub mod kimi_code;
@@ -18,10 +19,12 @@ pub mod moonshot;
 pub mod openai_platform;
 pub mod openrouter;
 pub mod presentation;
+pub mod siliconflow;
 pub mod tencent;
 pub mod tencent_coding_plan;
 pub mod tencent_token_plan;
 pub mod tencent_tokenhub;
+pub mod volcengine;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -135,6 +138,9 @@ pub enum Brand {
     Glm,
     MiniMax,
     Tencent,
+    Gemini,
+    SiliconFlow,
+    Volcengine,
 }
 
 /// “添加供应商”界面的一级厂商分组。
@@ -149,6 +155,9 @@ pub enum Vendor {
     Glm,
     MiniMax,
     Tencent,
+    Google,
+    SiliconFlow,
+    Volcengine,
 }
 
 impl Brand {
@@ -162,6 +171,9 @@ impl Brand {
             Brand::Glm => Vendor::Glm,
             Brand::MiniMax => Vendor::MiniMax,
             Brand::Tencent => Vendor::Tencent,
+            Brand::Gemini => Vendor::Google,
+            Brand::SiliconFlow => Vendor::SiliconFlow,
+            Brand::Volcengine => Vendor::Volcengine,
         }
     }
 }
@@ -177,6 +189,9 @@ impl Vendor {
             Vendor::Glm => "glm",
             Vendor::MiniMax => "minimax",
             Vendor::Tencent => "tencent",
+            Vendor::Google => "google",
+            Vendor::SiliconFlow => "siliconflow",
+            Vendor::Volcengine => "volcengine",
         }
     }
 
@@ -190,6 +205,9 @@ impl Vendor {
             Vendor::Glm => "GLM",
             Vendor::MiniMax => "MiniMax",
             Vendor::Tencent => "腾讯云",
+            Vendor::Google => "Google",
+            Vendor::SiliconFlow => "SiliconFlow",
+            Vendor::Volcengine => "火山引擎",
         }
     }
 
@@ -204,6 +222,9 @@ impl Vendor {
             Vendor::Glm => Brand::Glm,
             Vendor::MiniMax => Brand::MiniMax,
             Vendor::Tencent => Brand::Tencent,
+            Vendor::Google => Brand::Gemini,
+            Vendor::SiliconFlow => Brand::SiliconFlow,
+            Vendor::Volcengine => Brand::Volcengine,
         }
     }
 
@@ -217,6 +238,9 @@ impl Vendor {
             Vendor::Glm => 5,
             Vendor::MiniMax => 6,
             Vendor::Tencent => 7,
+            Vendor::Google => 8,
+            Vendor::Volcengine => 9,
+            Vendor::SiliconFlow => 10,
         }
     }
 }
@@ -395,6 +419,9 @@ pub fn registry() -> Vec<Arc<dyn Provider>> {
         Arc::new(codex::CodexProvider::new()),
         Arc::new(kimi_code::KimiCodeProvider::new()),
         Arc::new(tencent_coding_plan::TencentCodingPlanProvider::new()),
+        Arc::new(gemini::GeminiProvider::new()),
+        Arc::new(volcengine::VolcengineProvider::new()),
+        Arc::new(siliconflow::SiliconFlowProvider::new()),
     ]
 }
 

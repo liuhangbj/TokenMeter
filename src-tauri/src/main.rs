@@ -122,6 +122,8 @@ async fn main() {
             commands::claude_oauth_complete,
             commands::openrouter_oauth_start,
             commands::openrouter_oauth_poll,
+            commands::gemini_oauth_start,
+            commands::gemini_oauth_poll,
             commands::remove_provider,
             commands::has_configured_providers,
             commands::quit_app,

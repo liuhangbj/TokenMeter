@@ -1,16 +1,10 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <!-- macOS 菜单栏模板图标：纯黑剪影 + 透明底。
-       系统根据菜单栏明暗自动渲染为黑或白。 -->
-  <g fill="#000000">
-    <!-- 表盘圆环（3/4 圆弧） -->
-    <path d="M 118 366 A 158 158 0 1 1 394 366"
-          fill="none" stroke="#000000" stroke-width="42" stroke-linecap="round"/>
-    <!-- 指针 -->
-    <g transform="rotate(40 256 300)">
-      <line x1="256" y1="300" x2="256" y2="170"
-            stroke="#000000" stroke-width="26" stroke-linecap="round"/>
-    </g>
-    <!-- 轴心 -->
-    <circle cx="256" cy="300" r="32"/>
+  <g fill="none" stroke="#000" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M156 381A146 146 0 0 1 124 183"/>
+    <path d="M386 190A146 146 0 0 1 258 402"/>
+    <path d="M256 157 341 206v100l-85 49-85-49V206Z"/>
   </g>
+  <circle cx="124" cy="183" r="17" fill="#000"/>
+  <circle cx="258" cy="402" r="17" fill="#000"/>
+  <path d="m256 216 36 21v42l-36 21-36-21v-42Z" fill="#000"/>
 </svg>

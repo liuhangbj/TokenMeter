@@ -498,18 +498,38 @@ function OAuthFlow({
     }
   };
 
+  const startGemini = async () => {
+    setCopied(false);
+    setStatus({ kind: "working", note: "正在创建 Google 授权会话…" });
+    try {
+      const start = await invoke<{ session_id: string; authorize_url: string }>(
+        "gemini_oauth_start"
+      );
+      await openAuthPage(start.authorize_url);
+      setStatus({ kind: "working", note: "等待浏览器完成 Google 授权并同步配额…" });
+      await invoke("gemini_oauth_poll", { sessionId: start.session_id });
+      setStatus({ kind: "success" });
+      setTimeout(onDone, 800);
+    } catch (e) {
+      setStatus({ kind: "error", msg: String(e) });
+    }
+  };
+
   const isKimi = provider.id === "kimi_code";
   const isCodex = provider.id === "codex";
   const isClaude = provider.id === "claude";
   const isOpenRouter = provider.id === "openrouter";
-  const hasBrowserAuth = isKimi || isCodex || isClaude || isOpenRouter;
+  const isGemini = provider.id === "gemini";
+  const hasBrowserAuth = isKimi || isCodex || isClaude || isOpenRouter || isGemini;
   const startBrowserAuth = isKimi
     ? startDevice
     : isCodex
       ? startCodex
       : isClaude
         ? startClaude
-        : startOpenRouter;
+        : isGemini
+          ? startGemini
+          : startOpenRouter;
 
   return (
     <div className="wizard wizard-auth">
@@ -517,7 +537,9 @@ function OAuthFlow({
       <div className="wizard-main">
         <ProductIntro provider={provider} />
         <div className="oauth-copy">
-          {isOpenRouter
+          {isGemini
+            ? "通过 Google 账户连接 Gemini Code Assist，可同步套餐档位、各模型配额与 AI Credits；也可以导入本机 Gemini CLI 凭证。"
+            : isOpenRouter
             ? "推荐通过浏览器连接 OpenRouter，也可以导入本机环境凭证或手动填写 API Key。"
             : "可通过浏览器完成安全授权，也可以导入本机已经登录的 CLI 凭证。"}
         </div>

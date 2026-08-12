@@ -99,3 +99,6 @@ export interface AddableProvider {
   auth_spec: AuthSpec;
   supports_local_import: boolean;
 }
+
+export type AppTheme = "classic" | "parchment" | "cyberpunk";
+export type AppAppearance = "system" | "light" | "dark";

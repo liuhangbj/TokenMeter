@@ -7,7 +7,7 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 ## 功能
 
 - **托盘下拉面板**：额度条 + 余额 + 重置倒计时，5 段警示色（绿→橙→红）一眼识别紧张度
-- **明暗主题**：跟随系统自动切换
+- **主题系统**：风格与明暗外观独立；Classic、Claude 和 Cyber 均支持浅色、深色与跟随系统
 - **卡片排序**：上下箭头自定义顺序，持久化记忆
 - **自适应高度**：内容少时紧凑，多了才滚动
 - **添加供应商向导**：API Key 表单 / OAuth 浏览器授权 / 本机 CLI 凭证一键导入
@@ -33,6 +33,9 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 | MiniMax Token Plan | 订阅（多模态额度） | Subscription Key / 本机 CLI | 🧪 待套餐账号实测 |
 | MiniMax API | 按量余额 | API Key | ✅ |
 | 腾讯 TokenHub | Token Plan（按总量扣减） | SecretId/Key | ✅ |
+| Gemini Code Assist | 订阅（模型配额 + AI Credits） | Google OAuth / 本机 Gemini CLI | 🧪 待套餐账号实测 |
+| 火山引擎 | 按量（可用/现金/信用/冻结/欠费） | 费用中心 Access Key / Secret Key | 🧪 待真实账号实测 |
+| SiliconFlow | 按量（总余额 + 充值/赠送余额） | API Key（国内/国际站） | 🧪 待真实账号实测 |
 | 腾讯 Token Plan（个人版） | 订阅 | 无官方查询 API | 🔜 待官方开放 |
 | 腾讯 Coding Plan | 订阅 | 无官方 API | 🔜 待官方开放 |
 
@@ -40,12 +43,10 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 
 | 平台 | 备注 |
 |------|------|
-| Gemini (Google) | AI Studio API + Advanced 订阅 |
-| Ali Qwen (通义千问) | 阿里云百炼 API |
-| 豆包 (字节) | 火山引擎方舟 API |
 | 小米 MiMo | 小米大模型 API |
+| Ali Qwen (通义千问) | 阿里云百炼 API |
 
-> 各平台接口调研与字段确认记录见 [docs/01-provider-matrix.md](docs/01-provider-matrix.md)。欢迎 PR 补充。
+> 完整开发顺序见 [docs/06-roadmap.md](docs/06-roadmap.md)，各平台接口调研与字段确认记录见 [docs/01-provider-matrix.md](docs/01-provider-matrix.md)。欢迎 PR 补充。
 
 ## 安装
 

@@ -5,6 +5,7 @@
 
 use crate::core::oauth_codex;
 use crate::core::oauth_device;
+use crate::core::oauth_google;
 use crate::core::oauth_pkce;
 use crate::core::providers::{
     self, presentation::AccountCardModel, presentation::BrandStyle, AddAccountType, AuthSpec,
@@ -12,7 +13,7 @@ use crate::core::providers::{
 };
 use crate::core::scheduler::Snapshots;
 use crate::core::scheduler_ctl::SchedulerCtl;
-use crate::core::settings::{self, Settings};
+use crate::core::settings::{self, Appearance, Settings, Theme};
 use crate::core::store;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -118,7 +119,7 @@ pub fn get_settings() -> Settings {
     settings::load()
 }
 
-/// 保存通用设置。只处理设置面板拥有的两个字段，避免昵称/排序携带旧副本
+/// 保存通用设置。只处理设置面板拥有的四个字段，避免昵称/排序携带旧副本
 /// 覆盖新值。副作用与文件保存按可回滚顺序执行，成功后才更新运行时调度器。
 #[tauri::command]
 pub fn set_general_settings(
@@ -126,6 +127,8 @@ pub fn set_general_settings(
     ctl: State<SchedulerCtl>,
     launch_at_login: bool,
     refresh_interval_secs: u64,
+    theme: Theme,
+    appearance: Appearance,
 ) -> Result<Settings, String> {
     let _guard = settings_write_lock()?;
     if !settings::INTERVAL_OPTIONS.contains(&refresh_interval_secs) {
@@ -136,6 +139,8 @@ pub fn set_general_settings(
     let mut next = previous.clone();
     next.launch_at_login = launch_at_login;
     next.refresh_interval_secs = refresh_interval_secs;
+    next.theme = theme;
+    next.appearance = appearance;
     let autostart_changed = previous.launch_at_login != next.launch_at_login;
 
     if autostart_changed {
@@ -380,6 +385,25 @@ pub async fn openrouter_oauth_poll(
     validate_and_store_oauth("openrouter", credential, &ctl).await
 }
 
+/// Gemini Code Assist 浏览器 OAuth：loopback 回调 + PKCE。
+#[tauri::command]
+pub async fn gemini_oauth_start() -> Result<oauth_google::GoogleOAuthStart, String> {
+    oauth_google::start()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn gemini_oauth_poll(
+    ctl: State<'_, SchedulerCtl>,
+    session_id: String,
+) -> Result<(), String> {
+    let credential = oauth_google::complete(&session_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    validate_and_store_oauth("gemini", credential, &ctl).await
+}
+
 async fn validate_and_store_oauth(
     provider_id: &str,
     credential: Credential,
@@ -531,7 +555,7 @@ mod tests {
     #[test]
     fn addable_providers_are_nonempty_and_serializable() {
         let list = list_addable_providers();
-        assert_eq!(list.len(), 13, "应返回 13 个可添加 provider");
+        assert_eq!(list.len(), 16, "应返回 16 个可添加 provider");
         assert_eq!(list[0].vendor.id, "openai");
         assert_eq!(list[0].account_type, AddAccountType::Plan);
         assert_eq!(list[0].product_name, "Codex 套餐");
@@ -550,6 +574,9 @@ mod tests {
         assert_eq!(vendor_counts.get("glm"), Some(&2));
         assert_eq!(vendor_counts.get("minimax"), Some(&2));
         assert_eq!(vendor_counts.get("tencent"), Some(&1));
+        assert_eq!(vendor_counts.get("google"), Some(&1));
+        assert_eq!(vendor_counts.get("volcengine"), Some(&1));
+        assert_eq!(vendor_counts.get("siliconflow"), Some(&1));
         for vendor_id in ["anthropic", "glm", "minimax"] {
             let account_types = list
                 .iter()

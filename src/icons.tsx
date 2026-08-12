@@ -97,14 +97,14 @@ export function IconRefresh({ size = 14 }: IconProps) {
   );
 }
 
-/** TokenMeter 的紧凑表盘标记，用于面板标题，不复用深色 App 图标底板。 */
+/** TokenMeter 六边形信号孔径，用于标题；轮廓与 App / 托盘图标同源。 */
 export function IconGauge({ size = 20 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4.4 16.8a8.2 8.2 0 1 1 15.2 0" stroke="#21a878" strokeWidth="3" strokeLinecap="round" />
-      <path d="M5.05 8.85A8.2 8.2 0 0 1 12 3.8" stroke="#75d59a" strokeWidth="3" strokeLinecap="round" />
-      <path d="m12 14.1 4.2-4.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="12" cy="14.1" r="2" fill="currentColor" />
+      <path d="M5.4 18.2A8.2 8.2 0 0 1 4.7 7.7" stroke="var(--theme-accent)" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M18.7 7.9a8.2 8.2 0 0 1-7 12.3" stroke="var(--theme-accent-2)" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="m12 6.6 4.6 2.7v5.4L12 17.4l-4.6-2.7V9.3Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="m12 10 1.8 1v2L12 14l-1.8-1v-2Z" fill="var(--theme-accent)" />
     </svg>
   );
 }
@@ -182,6 +182,31 @@ export function BrandIcon({ brand, label, size = 22 }: BrandIconProps) {
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M6 7.2h12M12 7.2V20M4.2 4h15.6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (brand === "gemini") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.8c.65 5.1 3.75 8.2 8.8 8.85-5.05.65-8.15 3.75-8.8 8.85-.65-5.1-3.75-8.2-8.8-8.85C8.25 11 11.35 7.9 12 2.8Z" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (brand === "siliconflow") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4 7.2c2.7-2.7 5.8-2.7 8.5 0s5.8 2.7 7.5 0M4 12c2.7-2.7 5.8-2.7 8.5 0s5.8 2.7 7.5 0M4 16.8c2.7-2.7 5.8-2.7 8.5 0s5.8 2.7 7.5 0" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (brand === "volcengine") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4L12 2.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="m8.1 14.6 3.1-6.1 1.7 3h3l-3.1 5.9-1.7-2.8h-3Z" fill="currentColor" />
       </svg>
     );
   }

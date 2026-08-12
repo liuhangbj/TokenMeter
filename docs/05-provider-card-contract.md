@@ -32,4 +32,15 @@ TokenMeter 的前端只消费 `AccountCardModel`，不读取各供应商原始�
 5. 在 `Brand::style()` 配置明暗模式品牌色；未知图标会自动使用名称首字。
 6. 增加至少一个契约测试，验证主值、明细顺序、单位和套餐档位。
 
+## 2026-08-12 新接入映射
+
+| Provider | 认证 | 主值 | 明细 |
+|---|---|---|---|
+| Gemini Code Assist | Google OAuth / Gemini CLI 凭证 | 最长周期模型配额余量 | 全部模型桶、重置时间、AI Credits |
+| 火山引擎 | 费用中心 AK/SK | `AvailableBalance` | `CashBalance`、`CreditLimit`、`FreezeAmount`、`ArrearsBalance` |
+| SiliconFlow | 国内/国际站 API Key | `totalBalance` | `chargeBalance`、`balance` |
+
+Gemini AI Studio 的普通 API Key 当前没有可用的账户余额/套餐额度接口，因此不创建
+无法满足主值契约的空壳入口。火山方舟推理 API Key 与费用中心 AK/SK 也不能混用。
+
 正常情况下不需要修改 `src/ProviderCard.tsx`、`src/App.tsx` 或新增 CSS 卡片模板。

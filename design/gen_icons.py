@@ -1,100 +1,165 @@
 #!/usr/bin/env python3
-"""用 PIL 直接绘制 TokenMeter 图标（零外部 C 库依赖，可重复生成）。
-设计：仪表盘意象 —— 3/4 圆环（5段警示色渐变）+ 指针 + 轴心。
-- App 图标：圆角深底 + 彩色表盘
-- 菜单栏图标：纯黑剪影模板图（透明底，系统适配明暗）
+"""重复生成 TokenMeter App / 菜单栏 / Windows 托盘图标。
+
+母图语言：六边形信号孔径 + 两段非对称配额轨道。
+- 青色轨道：实时额度信号
+- 铜金轨道：账户价值/余额
+- 图形在纯单色下仍成立，可作为 macOS template image
 """
-from PIL import Image, ImageDraw
-import math, os
 
-OUT = "src-tauri/icons"
-os.makedirs(OUT, exist_ok=True)
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFilter
+import math
 
-# 5 段警示色
-LV = ["#7ed79b", "#2ba471", "#e37318", "#d54941", "#9e2b25"]
+OUT = Path(__file__).resolve().parents[1] / "src-tauri" / "icons"
+OUT.mkdir(parents=True, exist_ok=True)
 
-def hex2rgb(h):
-    h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+INK = (4, 8, 13)
+CYAN = (40, 218, 225)
+CYAN_HI = (99, 238, 237)
+COPPER = (207, 126, 65)
+GOLD = (238, 184, 105)
 
-def lerp(a, b, t):
-    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
-def gauge_color(t):
-    """t∈[0,1] → 沿 5 段渐变取色（绿→深绿→橙→红）。"""
-    stops = [hex2rgb(LV[0]), hex2rgb(LV[1]), hex2rgb(LV[2]), hex2rgb(LV[3])]
-    t = max(0.0, min(1.0, t))
-    seg = t * (len(stops) - 1)
-    i = int(seg)
-    if i >= len(stops) - 1:
-        return stops[-1]
-    return lerp(stops[i], stops[i + 1], seg - i)
+def mix(a, b, t):
+    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
-def draw_gauge(size, colored, supersample=4):
-    """绘制仪表盘。colored=True 为 App 图标，False 为菜单栏模板。"""
-    S = size * supersample
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    cx = cy = S / 2
 
-    if colored:
-        # 圆角深底
-        r = int(S * 0.21)
-        d.rounded_rectangle([S*0.03, S*0.03, S*0.97, S*0.97], radius=r, fill=hex2rgb("#1b1b1f") + (255,))
+def rounded_mask(size, inset, radius):
+    mask = Image.new("L", (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle(
+        (inset, inset, size - inset, size - inset), radius=radius, fill=255
+    )
+    return mask
 
-    # 表盘参数：3/4 圆弧，从 135° 到 405°（即底部缺口 90°）
-    radius = S * 0.30
-    ring_w = int(S * 0.065)
-    start_deg, end_deg = 135, 405  # PIL 角度：0°=东，顺时针
-    steps = 240
+
+def polygon_points(cx, cy, radius, sides=6, rotation=-90):
+    return [
+        (
+            cx + radius * math.cos(math.radians(rotation + i * 360 / sides)),
+            cy + radius * math.sin(math.radians(rotation + i * 360 / sides)),
+        )
+        for i in range(sides)
+    ]
+
+
+def arc_point(cx, cy, radius, angle):
+    radians = math.radians(angle)
+    return cx + radius * math.cos(radians), cy + radius * math.sin(radians)
+
+
+def draw_arc(draw, bbox, start, end, width, start_color, end_color, steps=150):
+    span = end - start
     for i in range(steps):
-        t0 = i / steps
-        t1 = (i + 1) / steps
-        a0 = math.radians(start_deg + (end_deg - start_deg) * t0)
-        a1 = math.radians(start_deg + (end_deg - start_deg) * t1)
-        # PIL arc 的 0° 在 x 轴正向、顺时针；表盘缺口朝下。
-        # t0 从 0→1 = 从左端(绿) → 右端(红)，低用量在左、高用量在右。
-        color = gauge_color(t0) if colored else (0, 0, 0)
-        bbox = [cx - radius, cy - radius, cx + radius, cy + radius]
-        d.arc(bbox, math.degrees(a0), math.degrees(a1), fill=color + (255,), width=ring_w)
+        t = i / max(steps - 1, 1)
+        color = mix(start_color, end_color, t)
+        a0 = start + span * i / steps
+        a1 = start + span * (i + 1.6) / steps
+        draw.arc(bbox, a0, a1, fill=color + (255,), width=width)
 
-    # 圆环两端圆头（消掉直切角）：start 端=绿(t=0)，end 端=红(t=1)
-    def cap(deg):
-        a = math.radians(deg)
-        x, y = cx + radius * math.cos(a), cy + radius * math.sin(a)
-        col = (gauge_color(0.0) if deg == start_deg else gauge_color(1.0)) if colored else (0, 0, 0)
-        r = ring_w / 2
-        d.ellipse([x - r, y - r, x + r, y + r], fill=col + (255,))
-    cap(start_deg)
-    cap(end_deg)
 
-    # 指针（指向 ~62% 处，橙区）
-    ang_deg = start_deg + (end_deg - start_deg) * 0.62
-    ang = math.radians(ang_deg)
-    plen = radius * 0.92
-    px, py = cx + plen * math.cos(ang), cy + plen * math.sin(ang)
-    needle_col = (242, 242, 242) if colored else (0, 0, 0)
-    d.line([cx, cy, px, py], fill=needle_col + (255,), width=int(S * 0.045))
-    # 轴心
-    hub_r = S * 0.05
-    d.ellipse([cx - hub_r, cy - hub_r, cx + hub_r, cy + hub_r], fill=needle_col + (255,))
-    inner = hex2rgb("#1b1b1f") if colored else (0, 0, 0)
-    d.ellipse([cx - hub_r*0.45, cy - hub_r*0.45, cx + hub_r*0.45, cy + hub_r*0.45], fill=inner + (255,))
+def draw_mark(layer, size, colored=True, glow=False):
+    draw = ImageDraw.Draw(layer)
+    cx = cy = size / 2
+    outer_radius = size * 0.292
+    outer_width = max(2, round(size * 0.043))
+    bbox = (
+        cx - outer_radius,
+        cy - outer_radius,
+        cx + outer_radius,
+        cy + outer_radius,
+    )
+    cyan_a = CYAN_HI if glow else CYAN
+    copper_a = GOLD if glow else COPPER
+    if colored:
+        draw_arc(draw, bbox, 154, 275, outer_width, cyan_a, CYAN, 140)
+        draw_arc(draw, bbox, -26, 92, outer_width, GOLD, copper_a, 140)
+    else:
+        draw.arc(bbox, 154, 275, fill=(0, 0, 0, 255), width=outer_width)
+        draw.arc(bbox, -26, 92, fill=(0, 0, 0, 255), width=outer_width)
 
-    return img.resize((size, size), Image.LANCZOS)
+    node_radius = size * 0.026
+    for angle, color in [(154, cyan_a), (92, copper_a)]:
+        x, y = arc_point(cx, cy, outer_radius, angle)
+        draw.ellipse(
+            (x - node_radius, y - node_radius, x + node_radius, y + node_radius),
+            fill=(color if colored else (0, 0, 0)) + (255,),
+        )
 
-# App 图标多尺寸
-for size in [32, 128, 256, 512, 1024]:
-    draw_gauge(size, colored=True).save(f"{OUT}/{size}x{size}.png")
-    print(f"app {size}x{size} ✅")
-draw_gauge(512, colored=True).save(f"{OUT}/icon.png")
+    hex_outer = polygon_points(cx, cy, size * 0.193)
+    hex_inner = polygon_points(cx, cy, size * 0.132)
+    hex_width = max(2, round(size * 0.038))
+    outline = GOLD if colored else (0, 0, 0)
+    draw.line(hex_outer + [hex_outer[0]], fill=outline + (255,), width=hex_width, joint="curve")
+    if colored:
+        draw.line(
+            hex_inner + [hex_inner[0]],
+            fill=(28, 101, 112, 190),
+            width=max(1, round(hex_width * 0.5)),
+            joint="curve",
+        )
+    core = polygon_points(cx, cy, size * 0.078)
+    draw.polygon(core, fill=(CYAN_HI if colored else (0, 0, 0)) + (255,))
 
-# 菜单栏模板图标（纯黑 + 透明底）
-menubar = draw_gauge(512, colored=False)
-menubar.save(f"{OUT}/menubar.png")
-# 同时导出 RGBA 原始字节（Tauri Image::new_owned 需要 RGBA + 宽高，不直接吃 PNG）
-mb_rgba = draw_gauge(64, colored=False)  # 菜单栏实际显示尺寸小，64 够清晰
-with open(f"{OUT}/menubar.rgba", "wb") as f:
-    f.write(mb_rgba.tobytes())
-print("menubar template ✅ (+ menubar.rgba 64x64)")
-print("完成")
+
+def app_icon(size, supersample=4):
+    s = size * supersample
+    mask = rounded_mask(s, round(s * 0.035), round(s * 0.215))
+
+    background = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    pixels = background.load()
+    for y in range(s):
+        t = y / max(s - 1, 1)
+        row = mix((25, 31, 42), (5, 8, 14), t)
+        for x in range(s):
+            radial = max(0.0, 1.0 - math.hypot(x - s * 0.42, y - s * 0.36) / (s * 0.72))
+            tint = mix(row, (21, 55, 61), radial * 0.12)
+            pixels[x, y] = tint + (255,)
+    background.putalpha(mask)
+
+    glow = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    draw_mark(glow, s, colored=True, glow=True)
+    glow = glow.filter(ImageFilter.GaussianBlur(max(2, round(s * 0.035))))
+    glow.putalpha(Image.eval(glow.getchannel("A"), lambda value: round(value * 0.38)))
+    background.alpha_composite(glow)
+
+    mark = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    draw_mark(mark, s, colored=True)
+    background.alpha_composite(mark)
+
+    border = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    ImageDraw.Draw(border).rounded_rectangle(
+        (s * 0.045, s * 0.045, s * 0.955, s * 0.955),
+        radius=s * 0.205,
+        outline=(126, 222, 228, 45),
+        width=max(2, round(s * 0.007)),
+    )
+    background.alpha_composite(border)
+    return background.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def mark_icon(size, colored, supersample=4):
+    s = size * supersample
+    image = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    draw_mark(image, s, colored=colored)
+    return image.resize((size, size), Image.Resampling.LANCZOS)
+
+
+for icon_size in [32, 128, 256, 512, 1024]:
+    app_icon(icon_size).save(OUT / f"{icon_size}x{icon_size}.png")
+master = app_icon(1024)
+app_icon(512).save(OUT / "icon.png")
+master.save(
+    OUT / "icon.ico",
+    format="ICO",
+    sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+)
+master.save(OUT / "icon.icns", format="ICNS")
+
+menubar = mark_icon(512, colored=False)
+menubar.save(OUT / "menubar.png")
+(OUT / "menubar.rgba").write_bytes(mark_icon(64, colored=False).tobytes())
+(OUT / "tray_color.rgba").write_bytes(mark_icon(64, colored=True).tobytes())
+
+print("TokenMeter app / menubar / Windows tray icons generated")

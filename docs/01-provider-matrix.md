@@ -3,6 +3,8 @@
 > 调研日期：2026-08-02
 > 所有端点均已核实来源，标注 ⚠️ 的为非公开接口，随时可能失效。
 
+> 2026-08-12 增补：Gemini Code Assist、火山引擎费用中心、SiliconFlow。
+
 四个平台实际拆分为 **8 个独立供应商条目**，因为同一品牌下的订阅制与按量制走完全不同的凭证体系，数据结构也不通用。
 
 ---
@@ -19,6 +21,9 @@
 | 6 | 腾讯 Coding Plan | Tencent | 订阅（请求次数） | ⚠️ 待定 | ⚠️ 逆向 |
 | 7 | 腾讯 Token Plan | Tencent | 订阅（Token 数） | SecretId/Key | ✅ 官方 |
 | 8 | 腾讯 TokenHub 按量 | Tencent | 按量 | SecretId/Key | ✅ 官方 |
+| 9 | Gemini Code Assist | Google | 订阅 | Google OAuth / Gemini CLI | Google 官方 CLI 使用的 Code Assist 接口 |
+| 10 | 火山引擎费用中心 | Volcengine | 按量 | Access Key / Secret Key | ✅ 官方 |
+| 11 | SiliconFlow | SiliconFlow | 按量 | API Key | ✅ 官方 |
 
 ---
 
