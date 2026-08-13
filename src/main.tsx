@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import FloatingOrb from "./FloatingOrb";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "@fontsource-variable/oxanium";
 import "@fontsource/share-tech-mono";
 import "./fonts.css";
@@ -10,7 +12,11 @@ import "./popover.css";
 import "./wizard.css";
 import "./cyberpunk.css";
 import "./parchment.css";
+import "./floating-orb.css";
 import { applyTheme, readStoredAppearance, readStoredTheme } from "./themeRuntime";
+
+const IS_FLOATING_ORB = getCurrentWindow().label === "floating-orb";
+if (IS_FLOATING_ORB) document.documentElement.dataset.floatingOrb = "true";
 
 // 先用上次选择的风格和外观绘制首帧，后端设置加载后再校准，避免面板闪白。
 applyTheme(readStoredTheme(), readStoredAppearance());
@@ -35,7 +41,7 @@ window.addEventListener("unhandledrejection", (e) => {
 });
 
 function Root() {
-  return <App />;
+  return IS_FLOATING_ORB ? <FloatingOrb /> : <App />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

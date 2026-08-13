@@ -1,7 +1,7 @@
 // 标准账户卡片：只识别主指标、额度行与余额行，不感知具体供应商。
 import type { AccountCardModel, BalanceCardItem, QuotaCardItem, QuotaUnit } from "./types";
 import {
-  brandStyleVars, fmtMoney, fmtTokens, levelClass, resetIn, statusDotClass,
+  brandStyleVars, fmtMoney, fmtTokens, formatCardAmount, levelClass, resetIn, statusDotClass,
   updatedAgo, usageLevel,
 } from "./utils";
 import { BrandIcon } from "./icons";
@@ -70,9 +70,7 @@ function planTierClass(tier: number | null): string {
 }
 
 function primaryValue(card: AccountCardModel): string {
-  const { value, unit } = card.primary;
-  if (value === null || unit === null) return "—";
-  return formatAmount(value, unit);
+  return formatCardAmount(card.primary.value, card.primary.unit);
 }
 
 export function ProviderCard({

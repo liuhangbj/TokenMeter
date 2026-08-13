@@ -13,12 +13,12 @@ use crate::core::providers::{
 };
 use crate::core::scheduler::Snapshots;
 use crate::core::scheduler_ctl::SchedulerCtl;
-use crate::core::settings::{self, Appearance, Settings, Theme};
+use crate::core::settings::{self, Appearance, FloatingOrbSettings, Settings, Theme};
 use crate::core::store;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, OnceLock};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt as _;
 
 static SETTINGS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -119,7 +119,7 @@ pub fn get_settings() -> Settings {
     settings::load()
 }
 
-/// 保存通用设置。只处理设置面板拥有的四个字段，避免昵称/排序携带旧副本
+/// 保存通用设置。只处理设置面板拥有的字段，避免昵称/排序携带旧副本
 /// 覆盖新值。副作用与文件保存按可回滚顺序执行，成功后才更新运行时调度器。
 #[tauri::command]
 pub fn set_general_settings(
@@ -129,6 +129,7 @@ pub fn set_general_settings(
     refresh_interval_secs: u64,
     theme: Theme,
     appearance: Appearance,
+    floating_orb_enabled: bool,
 ) -> Result<Settings, String> {
     let _guard = settings_write_lock()?;
     if !settings::INTERVAL_OPTIONS.contains(&refresh_interval_secs) {
@@ -141,6 +142,7 @@ pub fn set_general_settings(
     next.refresh_interval_secs = refresh_interval_secs;
     next.theme = theme;
     next.appearance = appearance;
+    next.floating_orb.enabled = floating_orb_enabled;
     let autostart_changed = previous.launch_at_login != next.launch_at_login;
 
     if autostart_changed {
@@ -157,12 +159,138 @@ pub fn set_general_settings(
         return Err(error.to_string());
     }
     ctl.set_interval(next.refresh_interval_secs);
+    // WebView 窗口的创建/显隐统一回主线程，避免 Windows 上从 IPC 工作线程
+    // 创建透明窗口时出现无效句柄、白屏或短暂任务栏窗口。
+    let floating_orb = next.floating_orb.clone();
+    let floating_theme = next.theme;
+    let floating_app = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        crate::platform::floating_orb::sync_visibility(
+            &floating_app,
+            &floating_orb,
+            floating_theme,
+        );
+    }) {
+        log::error!("同步悬浮球可见性失败: {error}");
+    }
+    let _ = app.emit("settings-updated", &next);
     Ok(next)
+}
+
+/// 保存悬浮球当前激活账号。它只影响球组切换，不改变卡片顺序。
+#[tauri::command]
+pub fn set_floating_orb_active_account(
+    app: AppHandle,
+    account_id: String,
+) -> Result<Settings, String> {
+    let _guard = settings_write_lock()?;
+    let mut current = settings::load_strict().map_err(|error| error.to_string())?;
+    current.floating_orb.active_account_id = if account_id.trim().is_empty() {
+        None
+    } else {
+        Some(account_id)
+    };
+    settings::save(&current).map_err(|error| error.to_string())?;
+    let _ = app.emit("settings-updated", &current);
+    Ok(current)
+}
+
+/// 收起/展开悬浮球并记住状态。窗口尺寸由账号数量推导，前端不传像素值。
+#[tauri::command]
+pub fn set_floating_orb_collapsed(
+    app: AppHandle,
+    collapsed: bool,
+    account_count: usize,
+) -> Result<Settings, String> {
+    let _guard = settings_write_lock()?;
+    let mut current = settings::load_strict().map_err(|error| error.to_string())?;
+    current.floating_orb.collapsed = collapsed;
+    settings::save(&current).map_err(|error| error.to_string())?;
+
+    let floating_orb = current.floating_orb.clone();
+    let floating_theme = current.theme;
+    let floating_app = app.clone();
+    app.run_on_main_thread(move || {
+        crate::platform::floating_orb::apply_layout(
+            &floating_app,
+            &floating_orb,
+            account_count,
+            floating_theme,
+        );
+    })
+    .map_err(|error| error.to_string())?;
+    let _ = app.emit("settings-updated", &current);
+    Ok(current)
+}
+
+/// 账号增加或删除后，按当前收起状态和账号数量重新计算窗口高度。
+#[tauri::command]
+pub fn sync_floating_orb_layout(app: AppHandle, account_count: usize) -> Result<(), String> {
+    let current = settings::load_strict().map_err(|error| error.to_string())?;
+    let floating_orb = current.floating_orb;
+    let floating_theme = current.theme;
+    let floating_app = app.clone();
+    app.run_on_main_thread(move || {
+        crate::platform::floating_orb::apply_layout(
+            &floating_app,
+            &floating_orb,
+            account_count,
+            floating_theme,
+        );
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// 悬浮组件右键菜单的唯一动作：隐藏窗口并关闭设置开关。
+/// 用户可从主面板设置中再次开启。
+#[tauri::command]
+pub fn hide_floating_orb(app: AppHandle) -> Result<Settings, String> {
+    let _guard = settings_write_lock()?;
+    let mut current = settings::load_strict().map_err(|error| error.to_string())?;
+    current.floating_orb.enabled = false;
+    settings::save(&current).map_err(|error| error.to_string())?;
+    if let Some(window) = app.get_webview_window(crate::platform::floating_orb::WINDOW_LABEL) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    let _ = app.emit("settings-updated", &current);
+    Ok(current)
+}
+
+/// 原生拖动结束后执行左右吸附，并把显示器、边缘和纵向比例持久化。
+#[tauri::command]
+pub fn snap_floating_orb(app: AppHandle) -> Result<FloatingOrbSettings, String> {
+    let snapped = crate::platform::floating_orb::snap_and_describe(&app)?;
+    let _guard = settings_write_lock()?;
+    let mut current = settings::load_strict().map_err(|error| error.to_string())?;
+    current.floating_orb.edge = snapped.edge;
+    current.floating_orb.y_ratio = snapped.y_ratio;
+    current.floating_orb.monitor_name = snapped.monitor_name;
+    settings::save(&current).map_err(|error| error.to_string())?;
+    let _ = app.emit("settings-updated", &current);
+    Ok(current.floating_orb)
+}
+
+/// 大球点击后打开现有主面板，并通知它滚动定位到对应账号卡片。
+#[tauri::command]
+pub fn open_account_from_floating_orb(app: AppHandle, account_id: String) -> Result<(), String> {
+    crate::platform::tray::show_panel_near_floating_orb(&app);
+    app.emit("focus-account-card", account_id)
+        .map_err(|error| error.to_string())
+}
+
+/// 面板自适应高度变化时，由原生层同时保持当前位置或重新应用右上角锚点。
+#[tauri::command]
+pub fn resize_panel(app: AppHandle, height: f64) -> Result<(), String> {
+    crate::platform::tray::resize_panel(&app, height)
 }
 
 /// 保存账号昵称，只合并该字段，不触碰刷新间隔或开机启动。
 #[tauri::command]
-pub fn set_account_nickname(account_id: String, nickname: String) -> Result<Settings, String> {
+pub fn set_account_nickname(
+    app: AppHandle,
+    account_id: String,
+    nickname: String,
+) -> Result<Settings, String> {
     let _guard = settings_write_lock()?;
     let mut current = settings::load_strict().map_err(|e| e.to_string())?;
     let nickname = nickname.trim();
@@ -174,12 +302,13 @@ pub fn set_account_nickname(account_id: String, nickname: String) -> Result<Sett
             .insert(account_id, nickname.to_string());
     }
     settings::save(&current).map_err(|e| e.to_string())?;
+    let _ = app.emit("settings-updated", &current);
     Ok(current)
 }
 
 /// 保存卡片顺序，只合并排序字段并去掉空值和重复账号。
 #[tauri::command]
-pub fn set_card_order(card_order: Vec<String>) -> Result<Settings, String> {
+pub fn set_card_order(app: AppHandle, card_order: Vec<String>) -> Result<Settings, String> {
     let _guard = settings_write_lock()?;
     let mut seen = std::collections::HashSet::new();
     let normalized = card_order
@@ -190,6 +319,7 @@ pub fn set_card_order(card_order: Vec<String>) -> Result<Settings, String> {
     let mut current = settings::load_strict().map_err(|e| e.to_string())?;
     current.card_order = normalized;
     settings::save(&current).map_err(|e| e.to_string())?;
+    let _ = app.emit("settings-updated", &current);
     Ok(current)
 }
 

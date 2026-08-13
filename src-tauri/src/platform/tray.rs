@@ -8,13 +8,16 @@
 //! 首次点击托盘时直接以最终尺寸定位显示；之后隐藏复用；
 //! 所有窗口 skipTaskbar，macOS 由 LSUIElement + Accessory 策略隐藏 Dock。
 
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering as AtomicOrdering},
+    Mutex, OnceLock,
+};
 
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
+    LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 
 /// 菜单栏模板图标（编译期嵌入，RGBA 原始字节，64×64）
@@ -30,13 +33,195 @@ const MENUBAR_SIZE: u32 = 64;
 pub(crate) const PANEL_W: i32 = 380;
 /// 面板的最大初始高度。前端会在内容不足时自动缩短窗口；超过该高度时面板内滚动。
 pub(crate) const PANEL_H: i32 = 800;
-/// Windows 外层窗口固定高度。WebView2 可见窗口不做运行时 resize，内容在内部滚动。
+/// Windows 隐藏预创建时的初始高度；前端完成内容测量后会自适应收缩或扩展。
 #[cfg(target_os = "windows")]
 const WINDOWS_PANEL_H: i32 = 560;
 /// 托盘单击防抖间隔（毫秒）：双击的第二击在此窗口内被忽略
 const CLICK_DEBOUNCE_MS: u64 = 300;
 /// 上次托盘点击的毫秒时间戳（双击防抖用）
 static LAST_CLICK_MS: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Default)]
+enum PanelAnchor {
+    /// 隐藏窗口完成初次测量、尚未选择显示入口。
+    #[default]
+    Unset,
+    /// 菜单栏点击入口：保存定位完成后的目标坐标，而不是临时读取当前坐标。
+    FixedPosition(PhysicalPosition<i32>),
+    /// 悬浮组件入口：始终贴在目标显示器工作区右上角。
+    RightTop { monitor_name: Option<String> },
+    /// Windows 托盘入口：动态改变高度时保持右边和底边贴近任务栏工作区。
+    #[cfg(target_os = "windows")]
+    RightBottom { monitor_name: Option<String> },
+}
+
+static PANEL_ANCHOR: OnceLock<Mutex<PanelAnchor>> = OnceLock::new();
+
+fn set_panel_anchor(anchor: PanelAnchor) {
+    match PANEL_ANCHOR
+        .get_or_init(|| Mutex::new(PanelAnchor::default()))
+        .lock()
+    {
+        Ok(mut current) => *current = anchor,
+        Err(error) => log::error!("面板锚点状态损坏: {error}"),
+    }
+}
+
+fn panel_anchor() -> PanelAnchor {
+    PANEL_ANCHOR
+        .get_or_init(|| Mutex::new(PanelAnchor::default()))
+        .lock()
+        .map(|anchor| anchor.clone())
+        .unwrap_or_default()
+}
+
+fn monitor_by_name(app: &tauri::AppHandle, name: Option<&str>) -> Option<tauri::Monitor> {
+    let monitors = app.available_monitors().ok()?;
+    name.and_then(|expected| {
+        monitors
+            .iter()
+            .find(|monitor| {
+                monitor
+                    .name()
+                    .is_some_and(|candidate| candidate == expected)
+            })
+            .cloned()
+    })
+    .or_else(|| app.primary_monitor().ok().flatten())
+    .or_else(|| monitors.into_iter().next())
+}
+
+fn position_panel_right_top(
+    panel: &tauri::WebviewWindow,
+    monitor: &tauri::Monitor,
+) -> Result<(), String> {
+    let work = monitor.work_area();
+    let scale = monitor.scale_factor();
+    let panel_w = PANEL_W as f64 * scale;
+    let margin = 8.0 * scale;
+    let x = (work.position.x as f64 + work.size.width as f64 - panel_w - margin)
+        .max(work.position.x as f64 + margin);
+    let y = work.position.y as f64 + margin;
+    set_panel_position_if_needed(
+        panel,
+        PhysicalPosition::new(x.round() as i32, y.round() as i32),
+    )?;
+    log::info!("主面板锚定右上角: x={}, y={}", x.round(), y.round());
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn position_panel_right_bottom(
+    panel: &tauri::WebviewWindow,
+    monitor: &tauri::Monitor,
+) -> Result<(), String> {
+    let size = panel.outer_size().map_err(|error| error.to_string())?;
+    position_panel_right_bottom_for_size(panel, monitor, size.width, size.height)
+}
+
+#[cfg(target_os = "windows")]
+fn position_panel_right_bottom_for_size(
+    panel: &tauri::WebviewWindow,
+    monitor: &tauri::Monitor,
+    panel_width: u32,
+    panel_height: u32,
+) -> Result<(), String> {
+    let work = monitor.work_area();
+    let (x, y) = right_bottom_coordinates(
+        work.position.x,
+        work.position.y,
+        work.size.width,
+        work.size.height,
+        panel_width,
+        panel_height,
+        monitor.scale_factor(),
+    );
+    set_panel_position_if_needed(panel, PhysicalPosition::new(x, y))?;
+    log::info!("主面板锚定右下角: x={x}, y={y}");
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(any(target_os = "windows", test))]
+fn right_bottom_coordinates(
+    work_x: i32,
+    work_y: i32,
+    work_width: u32,
+    work_height: u32,
+    panel_width: u32,
+    panel_height: u32,
+    scale: f64,
+) -> (i32, i32) {
+    let margin = 8.0 * scale;
+    let min_x = work_x as f64 + margin;
+    let min_y = work_y as f64 + margin;
+    let x = (work_x as f64 + work_width as f64 - panel_width as f64 - margin).max(min_x);
+    let y = (work_y as f64 + work_height as f64 - panel_height as f64 - margin).max(min_y);
+    (x.round() as i32, y.round() as i32)
+}
+
+fn set_panel_position_if_needed(
+    panel: &tauri::WebviewWindow,
+    target: PhysicalPosition<i32>,
+) -> Result<(), String> {
+    if panel
+        .outer_position()
+        .is_ok_and(|current| current.x == target.x && current.y == target.y)
+    {
+        return Ok(());
+    }
+    panel
+        .set_position(target)
+        .map_err(|error| error.to_string())
+}
+
+/// 窗口系统可能在 WebView 尺寸提交后再发送一次 move/resize，并把无边框窗口
+/// 放回默认居中位置。所有窗口生命周期事件都通过这里恢复最后一次显式锚点。
+pub(crate) fn reapply_panel_anchor(app: &tauri::AppHandle) -> Result<(), String> {
+    let panel = get_or_create_panel(app).ok_or_else(|| "主面板窗口创建失败".to_string())?;
+    match panel_anchor() {
+        PanelAnchor::Unset => Ok(()),
+        PanelAnchor::FixedPosition(position) => set_panel_position_if_needed(&panel, position),
+        PanelAnchor::RightTop { monitor_name } => {
+            let monitor = monitor_by_name(app, monitor_name.as_deref())
+                .ok_or_else(|| "无法获取主面板所在显示器".to_string())?;
+            position_panel_right_top(&panel, &monitor)
+        }
+        #[cfg(target_os = "windows")]
+        PanelAnchor::RightBottom { monitor_name } => {
+            let monitor = monitor_by_name(app, monitor_name.as_deref())
+                .ok_or_else(|| "无法获取主面板所在显示器".to_string())?;
+            position_panel_right_bottom(&panel, &monitor)
+        }
+    }
+}
+
+/// 前端内容测量后的唯一尺寸更新入口。尺寸变化与锚点恢复在同一原生调用中
+/// 完成，避免无边框窗口被系统重新放到屏幕中央。
+pub(crate) fn resize_panel(app: &tauri::AppHandle, height: f64) -> Result<(), String> {
+    let panel = get_or_create_panel(app).ok_or_else(|| "主面板窗口创建失败".to_string())?;
+    let height = height.round().clamp(120.0, PANEL_H as f64);
+    #[cfg(target_os = "windows")]
+    let anchor = panel_anchor();
+    panel
+        .set_size(LogicalSize::new(PANEL_W as f64, height))
+        .map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    if let PanelAnchor::RightBottom { monitor_name } = anchor {
+        let monitor = monitor_by_name(app, monitor_name.as_deref())
+            .ok_or_else(|| "无法获取主面板所在显示器".to_string())?;
+        let scale = monitor.scale_factor();
+        return position_panel_right_bottom_for_size(
+            &panel,
+            &monitor,
+            (PANEL_W as f64 * scale).round() as u32,
+            (height * scale).round() as u32,
+        );
+    }
+
+    reapply_panel_anchor(app)
+}
 
 /// 托盘图标与"是否模板图"按平台选择。
 /// macOS 用模板剪影 + icon_as_template(true)；Windows 用彩色图 + 非模板。
@@ -115,29 +300,17 @@ fn position_and_show(app: &tauri::AppHandle, _cursor: tauri::PhysicalPosition<f6
         log::warn!("position_and_show: 面板窗口创建失败");
         return;
     };
+    set_panel_anchor(PanelAnchor::Unset);
 
     #[cfg(target_os = "windows")]
     {
         // 用点击光标位置反查托盘所在显示器（比 tray_rect 可靠）
         let monitor = app.monitor_from_point(_cursor.x, _cursor.y).ok().flatten();
         if let Some(m) = monitor {
-            let wa = m.work_area(); // 物理坐标，已扣除任务栏
-            let margin = 8.0_f64;
-            // 右下角锚定使用窗口当前真实物理尺寸；不再用逻辑常量猜测，
-            // 避免 DPI 或未来尺寸策略变化后出现离任务栏的大段空隙。
-            let scale = m.scale_factor();
-            let size = window.outer_size().ok();
-            let panel_w = size
-                .map(|value| value.width as f64)
-                .unwrap_or(PANEL_W as f64 * scale);
-            let panel_h = size
-                .map(|value| value.height as f64)
-                .unwrap_or(WINDOWS_PANEL_H as f64 * scale);
-            let x = (wa.position.x as f64 + wa.size.width as f64 - panel_w - margin)
-                .max(wa.position.x as f64 + margin);
-            let y = (wa.position.y as f64 + wa.size.height as f64 - panel_h - margin)
-                .max(wa.position.y as f64 + margin);
-            let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+            set_panel_anchor(PanelAnchor::RightBottom {
+                monitor_name: m.name().cloned(),
+            });
+            let _ = position_panel_right_bottom(&window, &m);
         }
     }
 
@@ -165,7 +338,9 @@ fn position_and_show(app: &tauri::AppHandle, _cursor: tauri::PhysicalPosition<f6
             y = y.clamp(min_y, max_y.max(min_y));
         }
 
-        let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+        let position = PhysicalPosition::new(x as i32, y as i32);
+        set_panel_anchor(PanelAnchor::FixedPosition(position));
+        let _ = set_panel_position_if_needed(&window, position);
     }
 
     crate::mark_panel_shown();
@@ -192,10 +367,49 @@ pub(crate) fn show_panel_on_primary_monitor(app: &tauri::AppHandle) {
     }
 
     if let Some(window) = get_or_create_panel(app) {
+        if let Some(monitor) = monitor_by_name(app, None) {
+            set_panel_anchor(PanelAnchor::RightTop {
+                monitor_name: monitor.name().cloned(),
+            });
+            let _ = position_panel_right_top(&window, &monitor);
+        }
         crate::mark_panel_shown();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// 从悬浮组件打开主面板。主面板固定锚定在悬浮组件所在显示器的右上角，
+/// 不再跟随组件的纵向位置，否则组件拖到屏幕下半部后主面板会出现在中央。
+pub(crate) fn show_panel_near_floating_orb(app: &tauri::AppHandle) {
+    let Some(orb) = app.get_webview_window(crate::platform::floating_orb::WINDOW_LABEL) else {
+        show_panel_on_primary_monitor(app);
+        return;
+    };
+    let Some(panel) = get_or_create_panel(app) else {
+        return;
+    };
+    let Ok(orb_position) = orb.outer_position() else {
+        show_panel_on_primary_monitor(app);
+        return;
+    };
+    let Ok(orb_size) = orb.outer_size() else {
+        show_panel_on_primary_monitor(app);
+        return;
+    };
+    let center_x = orb_position.x as f64 + orb_size.width as f64 / 2.0;
+    let center_y = orb_position.y as f64 + orb_size.height as f64 / 2.0;
+    let Ok(Some(monitor)) = app.monitor_from_point(center_x, center_y) else {
+        show_panel_on_primary_monitor(app);
+        return;
+    };
+    set_panel_anchor(PanelAnchor::RightTop {
+        monitor_name: monitor.name().cloned(),
+    });
+    let _ = position_panel_right_top(&panel, &monitor);
+    crate::mark_panel_shown();
+    let _ = panel.show();
+    let _ = panel.set_focus();
 }
 
 pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
@@ -268,3 +482,26 @@ pub fn build_tray(app: &tauri::AppHandle) -> anyhow::Result<()> {
 /// 托盘句柄（保活用：字段不读，仅持有以防 TrayIcon 被 drop 移除托盘图标）
 #[allow(dead_code)]
 pub struct TrayHandle(pub tauri::tray::TrayIcon);
+
+#[cfg(test)]
+mod tests {
+    use super::right_bottom_coordinates;
+
+    #[test]
+    fn windows_panel_keeps_its_bottom_edge_when_height_shrinks() {
+        let full = right_bottom_coordinates(0, 0, 1920, 1040, 380, 560, 1.0);
+        let compact = right_bottom_coordinates(0, 0, 1920, 1040, 380, 320, 1.0);
+
+        assert_eq!(full, (1532, 472));
+        assert_eq!(compact, (1532, 712));
+        assert_eq!(full.1 + 560, compact.1 + 320);
+    }
+
+    #[test]
+    fn windows_panel_position_respects_monitor_origin_and_scale() {
+        assert_eq!(
+            right_bottom_coordinates(-2560, 0, 2560, 1400, 760, 640, 2.0),
+            (-776, 744)
+        );
+    }
+}

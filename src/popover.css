@@ -653,6 +653,13 @@ html[data-theme="classic"][data-appearance="dark"] .status-dot {
 
 /* ---- 卡片编辑控件（昵称、排序、移除）---- */
 .card-drag-wrap { position: relative; }
+.card-drag-wrap.focus-pulse .card {
+  animation: tm-focus-card 1.35s ease-out;
+}
+@keyframes tm-focus-card {
+  0%, 100% { border-color: var(--border); box-shadow: 0 1px 2px var(--card-shadow-contact), 0 7px 18px var(--card-shadow-depth), inset 0 1px 0 var(--inner-highlight); }
+  32% { border-color: var(--theme-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 24%, transparent), 0 10px 28px var(--theme-glow), inset 0 1px 0 var(--inner-highlight); }
+}
 .card-drag-wrap.editable .card-head { padding-right: 98px; }
 .card-drag-wrap.editable .plan-badge,
 .card-drag-wrap.editable .status-dot { display: none; }

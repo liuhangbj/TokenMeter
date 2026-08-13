@@ -86,7 +86,8 @@ try {
   $width = $rect.Right - $rect.Left
   $height = $rect.Bottom - $rect.Top
   $expectedWidth = [math]::Round(380 * $scale)
-  $expectedHeight = [math]::Round(560 * $scale)
+  $minimumHeight = [math]::Round(120 * $scale)
+  $maximumHeight = [math]::Round(800 * $scale)
   $rightGap = $work.Right - $rect.Right
   $bottomGap = $work.Bottom - $rect.Bottom
   $exStyle = [TokenMeterWindowProbe]::GetWindowLongPtr($hwnd, -20).ToInt64()
@@ -107,8 +108,9 @@ try {
   if ([math]::Abs($width - $expectedWidth) -gt 28) {
     throw "窗口宽度异常：actual=$width expected=$expectedWidth"
   }
-  if ([math]::Abs($height - $expectedHeight) -gt 28) {
-    throw "窗口高度异常：actual=$height expected=$expectedHeight"
+  # 高度改为内容自适应；这里只验证原生约束范围，具体内容高度由前端测量决定。
+  if ($height -lt ($minimumHeight - 28) -or $height -gt ($maximumHeight + 28)) {
+    throw "窗口自适应高度异常：actual=$height expectedRange=$minimumHeight..$maximumHeight"
   }
   if ($rightGap -lt -4 -or $rightGap -gt 32) {
     throw "窗口未贴近工作区右边：gap=$rightGap"
@@ -126,7 +128,7 @@ try {
     $graphics.Dispose()
     $bitmap.Dispose()
   }
-  Write-Output "PASS: Windows 可见面板尺寸与右下角定位正确"
+  Write-Output "PASS: Windows 可见面板自适应尺寸与右下角定位正确"
 } finally {
   Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
   Remove-Item Env:TOKENMETER_AUTO_PANEL -ErrorAction SilentlyContinue

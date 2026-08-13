@@ -1,10 +1,8 @@
 // 托盘下拉面板主组件
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { AccountCardModel, AppAppearance, AppTheme } from "./types";
+import type { AccountCardModel, AppSettings as Settings } from "./types";
 import { ProviderCard } from "./ProviderCard";
 import { SettingsPanel } from "./SettingsPanel";
 import { AddProvider } from "./AddProvider";
@@ -22,21 +20,11 @@ import {
 } from "./themeRuntime";
 
 /** 与后端 PANEL_W / PANEL_H 保持一致。 */
-const PANEL_WIDTH = 380;
 const PANEL_MAX_HEIGHT = 800;
 const IS_WINDOWS = navigator.userAgent.includes("Windows");
 
 // WebView2 使用不透明宿主窗口；CSS 需要知道平台以避免透明圆角等 macOS 专属效果。
 document.documentElement.dataset.platform = IS_WINDOWS ? "windows" : "macos";
-
-interface Settings {
-  launch_at_login: boolean;
-  refresh_interval_secs: number;
-  card_order: string[];
-  account_nicknames: Record<string, string>;
-  theme: AppTheme;
-  appearance: AppAppearance;
-}
 
 export function resolveAccountName(
   accountId: string,
@@ -61,6 +49,12 @@ function withoutAccountReferences(settings: Settings, accountId: string): Settin
     ...settings,
     card_order: (settings.card_order ?? []).filter((id) => id !== accountId),
     account_nicknames,
+    floating_orb: {
+      ...settings.floating_orb,
+      active_account_id: settings.floating_orb.active_account_id === accountId
+        ? null
+        : settings.floating_orb.active_account_id,
+    },
   };
 }
 
@@ -110,11 +104,10 @@ export default function App() {
   const [view, setView] = useState<"home" | "add">("home"); // 内嵌视图：主面板 / 添加供应商
   const [updateState, setUpdateState] = useState<UpdateState>(currentUpdateState());
 
-  // 固定区（标题 + 设置）不参与滚动；内容区独立滚动。窗口仍按两区自然高度
-  // 自适应收缩，超过 800px 时只压缩内容区。Windows 保持固定外层高度，
-  // 避免 WebView2 在可见状态下 resize 导致定位漂移与闪切。
+  // 固定区（标题 + 设置）不参与滚动；内容区独立滚动。窗口按两区自然高度
+  // 自适应收缩，超过 800px 时只压缩内容区。Windows 也走相同测量逻辑；
+  // 其位置稳定由原生层的右下角锚点负责，不能再用固定高度掩盖定位问题。
   useLayoutEffect(() => {
-    if (IS_WINDOWS) return;
     const panel = panelRef.current;
     const content = contentRef.current;
     if (!panel || !content) return;
@@ -136,8 +129,9 @@ export default function App() {
 
       if (lastPanelHeight.current === height) return;
       lastPanelHeight.current = height;
-      getCurrentWindow()
-        .setSize(new LogicalSize(PANEL_WIDTH, height))
+      // 由原生层同时更新尺寸与锚点。单独调用 WebView setSize 会让 macOS
+      // 在某些高度变化中重新安置无边框窗口，导致右上角面板跳回屏幕中央。
+      invoke("resize_panel", { height })
         .catch((error) => console.error("调整面板尺寸失败", error));
     };
     const scheduleResize = () => {
@@ -170,11 +164,35 @@ export default function App() {
       .catch(console.error);
   }, []);
 
+  useEffect(() => {
+    const unlisten = listen<string>("focus-account-card", ({ payload: accountId }) => {
+      setView("home");
+      setShowSettings(false);
+      setEditMode(false);
+      window.setTimeout(() => {
+        const target = Array.from(document.querySelectorAll<HTMLElement>("[data-account-id]"))
+          .find((element) => element.dataset.accountId === accountId);
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        target?.classList.add("focus-pulse");
+        window.setTimeout(() => target?.classList.remove("focus-pulse"), 1400);
+      }, 80);
+    });
+    return () => { unlisten.then((dispose) => dispose()); };
+  }, []);
+
   useEffect(() => subscribeSystemAppearance(() => {
     const appearance = readStoredAppearance();
     if (appearance !== "system") return;
     applyTheme(readStoredTheme(), appearance);
   }), []);
+
+  useEffect(() => {
+    const unlisten = listen<Settings>("settings-updated", ({ payload }) => {
+      setSettings(payload);
+      setCustomOrder(payload.card_order ?? []);
+    });
+    return () => { unlisten.then((dispose) => dispose()); };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -399,6 +417,7 @@ export default function App() {
             displayed.map((s, i) => (
               <div
                 key={s.account_id}
+                data-account-id={s.account_id}
                 className={`card-drag-wrap ${editMode ? "editable" : ""} ${renamingAccountId === s.account_id ? "renaming" : ""} ${removingAccountId === s.account_id ? "removing" : ""}`}
               >
                 {editMode && renamingAccountId === s.account_id && (

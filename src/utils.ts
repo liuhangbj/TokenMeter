@@ -1,7 +1,7 @@
 // 工具函数 —— 5 段警示色、时间格式化与标准品牌样式
 
 import type { CSSProperties } from "react";
-import type { BrandStyle } from "./types";
+import type { BrandStyle, QuotaUnit } from "./types";
 import type { HealthStatus } from "./types";
 
 /** 5 段用量等级（1-5）。hasCap=false 表示无上限（余额/成本型），返回 0 走品牌色。 */
@@ -82,6 +82,13 @@ export function fmtTokens(n: number): string {
   const scaledAbsolute = Math.abs(scaled);
   const maximumFractionDigits = scaledAbsolute >= 100 ? 0 : scaledAbsolute >= 10 ? 1 : 2;
   return `${scaled.toLocaleString("en-US", { maximumFractionDigits })}${unit.suffix}`;
+}
+
+export function formatCardAmount(value: number | null, unit: QuotaUnit | null): string {
+  if (value === null || unit === null) return "—";
+  if (typeof unit === "object" && "Currency" in unit) return fmtMoney(value, unit.Currency);
+  if (unit === "Tokens" || unit === "Requests") return fmtTokens(value);
+  return `${Math.round(value)}%`;
 }
 
 /** 后端品牌配置 → 支持明暗模式的 CSS 变量；新供应商无需新增 CSS 选择器。 */

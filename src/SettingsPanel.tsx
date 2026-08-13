@@ -9,17 +9,8 @@ import {
   installAndRelaunch,
   type UpdateState,
 } from "./updater";
-import type { AppAppearance, AppTheme } from "./types";
+import type { AppSettings as Settings } from "./types";
 import { applyTheme } from "./themeRuntime";
-
-interface Settings {
-  launch_at_login: boolean;
-  refresh_interval_secs: number;
-  card_order: string[];
-  account_nicknames: Record<string, string>;
-  theme: AppTheme;
-  appearance: AppAppearance;
-}
 
 const INTERVAL_LABELS: Record<number, string> = {
   60: "1 分钟",
@@ -64,6 +55,7 @@ export function SettingsPanel() {
         refreshIntervalSecs: next.refresh_interval_secs,
         theme: next.theme,
         appearance: next.appearance,
+        floatingOrbEnabled: next.floating_orb.enabled,
       });
       setSettings(saved);
     } catch (e) {
@@ -119,6 +111,18 @@ export function SettingsPanel() {
           disabled={saving}
         />
         <span>开机自动启动</span>
+      </label>
+
+      <label className="settings-row">
+        <input
+          type="checkbox"
+          checked={settings.floating_orb.enabled}
+          onChange={(event) => update({
+            floating_orb: { ...settings.floating_orb, enabled: event.target.checked },
+          })}
+          disabled={saving}
+        />
+        <span>桌面悬浮球</span>
       </label>
 
       <div className="settings-theme-row">

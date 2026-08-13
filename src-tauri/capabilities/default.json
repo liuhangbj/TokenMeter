@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "TokenMeter 默认能力集：自定义 command + 窗口管理 + 自动更新",
-  "windows": ["popover"],
+  "windows": ["popover", "floating-orb"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -11,6 +11,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
     "core:window:allow-close",
     "core:webview:default",
     "autostart:default",

@@ -7,6 +7,7 @@
 //!
 //! 窗口失焦/退出守卫等平台细节见 `crate::main` 的 on_window_event / run 回调。
 
+pub mod floating_orb;
 pub mod tray;
 
 /// 平台相关的一次性启动配置。

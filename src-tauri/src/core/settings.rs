@@ -32,6 +32,53 @@ pub enum Appearance {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FloatingOrbEdge {
+    Left,
+    #[default]
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FloatingOrbSettings {
+    /// 悬浮球默认关闭，避免升级后突然遮挡用户桌面。
+    #[serde(default)]
+    pub enabled: bool,
+    /// 最近吸附的屏幕边缘。
+    #[serde(default)]
+    pub edge: FloatingOrbEdge,
+    /// 在显示器工作区中的纵向位置（0-1），用于分辨率变化后的稳定恢复。
+    #[serde(default = "default_floating_orb_y_ratio")]
+    pub y_ratio: f64,
+    /// 最近所在显示器名称；显示器移除后自动回退主显示器。
+    #[serde(default)]
+    pub monitor_name: Option<String>,
+    /// 当前放大的账号；账号不存在时前端自动回退到第一个可用账号。
+    #[serde(default)]
+    pub active_account_id: Option<String>,
+    /// 收起后只保留当前主账号小球；再次点击小球展开完整账户列。
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+const fn default_floating_orb_y_ratio() -> f64 {
+    0.5
+}
+
+impl Default for FloatingOrbSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            edge: FloatingOrbEdge::Right,
+            y_ratio: default_floating_orb_y_ratio(),
+            monitor_name: None,
+            active_account_id: None,
+            collapsed: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub launch_at_login: bool,
@@ -48,6 +95,9 @@ pub struct Settings {
     /// 主题的明暗外观独立于风格；system 会实时跟随操作系统。
     #[serde(default)]
     pub appearance: Appearance,
+    /// 桌面悬浮球独立运行，但只消费标准账户卡片契约。
+    #[serde(default)]
+    pub floating_orb: FloatingOrbSettings,
 }
 
 impl Default for Settings {
@@ -59,6 +109,7 @@ impl Default for Settings {
             account_nicknames: HashMap::new(),
             theme: Theme::default(),
             appearance: Appearance::default(),
+            floating_orb: FloatingOrbSettings::default(),
         }
     }
 }
@@ -99,6 +150,9 @@ pub fn save(settings: &Settings) -> anyhow::Result<()> {
 pub fn remove_account_references(settings: &mut Settings, account_id: &str) {
     settings.card_order.retain(|id| id != account_id);
     settings.account_nicknames.remove(account_id);
+    if settings.floating_orb.active_account_id.as_deref() == Some(account_id) {
+        settings.floating_orb.active_account_id = None;
+    }
 }
 
 #[cfg(test)]
@@ -119,6 +173,10 @@ mod tests {
         assert!(settings.account_nicknames.is_empty());
         assert_eq!(settings.theme, super::Theme::Classic);
         assert_eq!(settings.appearance, super::Appearance::System);
+        assert!(!settings.floating_orb.enabled);
+        assert_eq!(settings.floating_orb.edge, super::FloatingOrbEdge::Right);
+        assert_eq!(settings.floating_orb.y_ratio, 0.5);
+        assert!(!settings.floating_orb.collapsed);
     }
 
     #[test]
@@ -130,10 +188,12 @@ mod tests {
         settings
             .account_nicknames
             .insert("moonshot".into(), "备用".into());
+        settings.floating_orb.active_account_id = Some("moonshot".into());
 
         remove_account_references(&mut settings, "moonshot");
 
         assert_eq!(settings.card_order, vec!["codex"]);
         assert!(!settings.account_nicknames.contains_key("moonshot"));
+        assert!(settings.floating_orb.active_account_id.is_none());
     }
 }

@@ -102,3 +102,22 @@ export interface AddableProvider {
 
 export type AppTheme = "classic" | "parchment" | "cyberpunk";
 export type AppAppearance = "system" | "light" | "dark";
+
+export interface FloatingOrbSettings {
+  enabled: boolean;
+  edge: "left" | "right";
+  y_ratio: number;
+  monitor_name: string | null;
+  active_account_id: string | null;
+  collapsed: boolean;
+}
+
+export interface AppSettings {
+  launch_at_login: boolean;
+  refresh_interval_secs: number;
+  card_order: string[];
+  account_nicknames: Record<string, string>;
+  theme: AppTheme;
+  appearance: AppAppearance;
+  floating_orb: FloatingOrbSettings;
+}

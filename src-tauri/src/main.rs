@@ -108,6 +108,13 @@ async fn main() {
             commands::on_panel_open,
             commands::get_settings,
             commands::set_general_settings,
+            commands::set_floating_orb_active_account,
+            commands::set_floating_orb_collapsed,
+            commands::sync_floating_orb_layout,
+            commands::hide_floating_orb,
+            commands::snap_floating_orb,
+            commands::open_account_from_floating_orb,
+            commands::resize_panel,
             commands::set_account_nickname,
             commands::set_card_order,
             commands::open_external,
@@ -142,6 +149,11 @@ async fn main() {
             // 启动即创建隐藏面板：前端在后台完成测量与尺寸定型，
             // 首次点托盘时直接以最终尺寸定位显示，杜绝"先弹再重定位"闪切。
             let _ = platform::tray::get_or_create_panel(app.handle());
+            platform::floating_orb::sync_visibility(
+                app.handle(),
+                &current.floating_orb,
+                current.theme,
+            );
 
             // 调度器运行：core 层不感知 Tauri，抓取完成通过闭包回发前端事件
             let cache = app.state::<core::scheduler::Snapshots>().inner().clone();
@@ -171,6 +183,9 @@ async fn main() {
                     let _ = h2.emit("debug-auto-panel", ());
                 });
             }
+            if std::env::var("TOKENMETER_AUTO_ORB").as_deref() == Ok("1") {
+                platform::floating_orb::show_for_debug(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -178,6 +193,16 @@ async fn main() {
             // 任何关闭请求一律转成隐藏，避免"最后窗口关闭"把进程带退出。
             if window.label() == "popover" {
                 match event {
+                    tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                        // macOS 可能在无边框 WebView 完成动态 resize 后再次移动窗口。
+                        // 用最后一次显式锚点纠偏；目标位置相同时不重复 set_position，
+                        // 因此处理 Moved 事件不会形成递归移动。
+                        if let Err(error) =
+                            platform::tray::reapply_panel_anchor(window.app_handle())
+                        {
+                            log::warn!("恢复主面板锚点失败: {error}");
+                        }
+                    }
                     tauri::WindowEvent::Focused(true) => {
                         POPOVER_HAS_FOCUS.store(true, Ordering::Relaxed);
                     }
@@ -232,6 +257,12 @@ async fn main() {
                         let _ = window.hide();
                     }
                     _ => {}
+                }
+            }
+            if window.label() == platform::floating_orb::WINDOW_LABEL {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
             }
         })
