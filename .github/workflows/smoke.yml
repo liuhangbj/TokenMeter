@@ -8,6 +8,8 @@
 #  4. 自动显示面板后宽度为 380（按 DPI 缩放）、高度按内容自适应，
 #     且始终贴在工作区右下角
 #  5. 上传真实 Windows 面板截图，供 WebView2 白屏/渲染回归检查
+#  6. 启动真实悬浮球并验证透明置顶窗口不抢焦点、不进任务栏，且能收起、
+#     点击展开、拖动并吸附左右边缘
 #
 # 局限：仍无法模拟系统托盘图标点击/右键菜单。
 name: Windows Smoke Test
@@ -119,6 +121,13 @@ jobs:
           $exe = "$PWD\src-tauri\target\release\tokenmeter.exe"
           & "$PWD\scripts\win\smoke-panel.ps1" -Exe $exe -OutDir "$PWD\smoke-visible"
 
+      - name: Assert floating orb window and interactions
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $exe = "$PWD\src-tauri\target\release\tokenmeter.exe"
+          & "$PWD\scripts\win\smoke-floating-orb.ps1" -Exe $exe -OutDir "$PWD\smoke-orb"
+
       - name: Show app log
         if: always()
         shell: pwsh
@@ -128,6 +137,10 @@ jobs:
             Get-Content "$PWD\app.log" -Tail 30
           } else {
             Write-Output "WARN: app.log 未生成"
+          }
+          if (Test-Path "$PWD\smoke-orb\floating-orb.log") {
+            Write-Output "=== floating-orb.log ==="
+            Get-Content "$PWD\smoke-orb\floating-orb.log" -Tail 30
           }
 
       - name: Cleanup
@@ -147,4 +160,5 @@ jobs:
             app.log
             pid.txt
             smoke-visible/**
+            smoke-orb/**
           if-no-files-found: ignore

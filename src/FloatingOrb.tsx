@@ -81,6 +81,9 @@ function Orb({
   accountName,
   onClick,
   onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
   ariaLabel,
 }: {
   card: AccountCardModel;
@@ -88,6 +91,9 @@ function Orb({
   accountName: string;
   onClick: () => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerCancel?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   ariaLabel?: string;
 }) {
   const water = waterLevel(card);
@@ -98,6 +104,9 @@ function Orb({
       type="button"
       onClick={onClick}
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       aria-label={ariaLabel ?? (large
         ? `${card.provider.name} ${accountName} ${value}，打开主面板`
         : `切换到 ${card.provider.name} ${accountName} ${value}`)}
@@ -131,9 +140,10 @@ export default function FloatingOrb() {
   const [focused, setFocused] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragSettleTimer = useRef<number | null>(null);
-  const collapsedDragActive = useRef(false);
+  const dragIsUserInitiated = useRef(false);
+  const dragStartedCollapsed = useRef(false);
   const collapsedLastMovedAt = useRef(0);
-  const collapsedRef = useRef(false);
+  const collapsedPointer = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const layoutAccountCount = useRef<number | null>(null);
 
   const loadCards = useCallback(async () => {
@@ -176,7 +186,10 @@ export default function FloatingOrb() {
 
   useEffect(() => {
     const unlisten = getCurrentWindow().onMoved(() => {
-      if (collapsedRef.current && collapsedDragActive.current) {
+      // set_size/set_position 也会产生 Moved。只为用户从拖动手势发起的移动
+      // 执行边缘吸附，避免 Windows 启动或 DPI 调整时重复改写显示器位置。
+      if (!dragIsUserInitiated.current) return;
+      if (dragStartedCollapsed.current) {
         collapsedLastMovedAt.current = Date.now();
       }
       if (dragSettleTimer.current !== null) window.clearTimeout(dragSettleTimer.current);
@@ -188,7 +201,8 @@ export default function FloatingOrb() {
           console.error("吸附悬浮球失败", error);
         } finally {
           dragSettleTimer.current = null;
-          collapsedDragActive.current = false;
+          dragIsUserInitiated.current = false;
+          dragStartedCollapsed.current = false;
         }
       }, 220);
     });
@@ -206,7 +220,6 @@ export default function FloatingOrb() {
   const active = ordered.find((card) => card.account_id === configuredActiveId) ?? ordered[0];
   const inactive = active ? ordered.filter((card) => card.account_id !== active.account_id) : [];
   const collapsed = settings?.floating_orb.collapsed ?? false;
-  collapsedRef.current = collapsed;
 
   useEffect(() => {
     if (!settings || layoutAccountCount.current === ordered.length) return;
@@ -230,22 +243,46 @@ export default function FloatingOrb() {
     }
   };
 
-  const startDrag = async () => {
+  const startDrag = async (startedCollapsed = false) => {
+    dragIsUserInitiated.current = true;
+    dragStartedCollapsed.current = startedCollapsed;
     try {
       await getCurrentWindow().startDragging();
     } catch (error) {
+      dragIsUserInitiated.current = false;
+      dragStartedCollapsed.current = false;
       console.error("拖动悬浮球失败", error);
     }
   };
 
-  const startCollapsedDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const beginCollapsedGesture = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
-    collapsedDragActive.current = true;
-    void startDrag();
+    collapsedPointer.current = {
+      pointerId: event.pointerId,
+      x: event.screenX,
+      y: event.screenY,
+    };
+  };
+
+  const continueCollapsedGesture = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const origin = collapsedPointer.current;
+    if (!origin || origin.pointerId !== event.pointerId || dragIsUserInitiated.current) return;
+    if ((event.buttons & 1) === 0) return;
+    const distance = Math.hypot(event.screenX - origin.x, event.screenY - origin.y);
+    if (distance < 5) return;
+    // 普通点击不调用系统拖动；只有越过阈值才交给原生窗口移动。
+    // 这样 Windows 不会因为 WM_NCLBUTTONDOWN 吞掉 click 而无法展开小球。
+    collapsedLastMovedAt.current = Date.now();
+    void startDrag(true);
+  };
+
+  const endCollapsedGesture = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (collapsedPointer.current?.pointerId === event.pointerId) {
+      collapsedPointer.current = null;
+    }
   };
 
   const expandCollapsed = () => {
-    collapsedDragActive.current = false;
     if (Date.now() - collapsedLastMovedAt.current < 400) {
       return;
     }
@@ -318,7 +355,10 @@ export default function FloatingOrb() {
             large={false}
             accountName={resolveAccountName(active, settings)}
             onClick={expandCollapsed}
-            onPointerDown={startCollapsedDrag}
+            onPointerDown={beginCollapsedGesture}
+            onPointerMove={continueCollapsedGesture}
+            onPointerUp={endCollapsedGesture}
+            onPointerCancel={endCollapsedGesture}
             ariaLabel={`展开 ${active.provider.name} ${resolveAccountName(active, settings)} 悬浮球`}
           />
         ) : (
@@ -326,7 +366,10 @@ export default function FloatingOrb() {
             type="button"
             className="floating-orb-collapsed-empty"
             onClick={expandCollapsed}
-            onPointerDown={startCollapsedDrag}
+            onPointerDown={beginCollapsedGesture}
+            onPointerMove={continueCollapsedGesture}
+            onPointerUp={endCollapsedGesture}
+            onPointerCancel={endCollapsedGesture}
             aria-label="展开 TokenMeter 悬浮球"
           >···</button>
         )}
@@ -349,7 +392,7 @@ export default function FloatingOrb() {
           className="floating-orb-grip"
           onPointerDown={(event) => {
             event.preventDefault();
-            void startDrag();
+            void startDrag(false);
           }}
           aria-label="拖动悬浮球"
           title="拖动并吸附到屏幕边缘"

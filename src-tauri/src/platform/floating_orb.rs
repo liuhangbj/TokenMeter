@@ -48,6 +48,11 @@ pub fn get_or_create(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         .resizable(false)
         .decorations(false)
         .transparent(true)
+        // Windows 桌面挂件不应在启动、重新开启或刷新布局时抢走当前应用焦点。
+        // WS_EX_NOACTIVATE 仍允许鼠标点击和拖动，只禁止把悬浮窗变成前台窗口；
+        // 点击大球后由主面板显式 set_focus()，因此不会影响正常打开详情。
+        .focusable(!cfg!(target_os = "windows"))
+        .focused(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .shadow(false)
@@ -106,7 +111,11 @@ fn position_window(
     let min_y = work.position.y as f64 + margin;
     let max_y = (work.position.y as f64 + work.size.height as f64 - height - margin).max(min_y);
     let y = min_y + (max_y - min_y) * settings.y_ratio.clamp(0.0, 1.0);
-    let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
+    if let Err(error) =
+        window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    {
+        log::error!("定位悬浮球窗口失败: {error}");
+    }
 }
 
 /// 根据账户数量收缩窗口；最多容纳五个小球，更多账户在列内滚动。
@@ -134,9 +143,13 @@ pub fn sync_visibility(app: &tauri::AppHandle, settings: &FloatingOrbSettings, t
         let Some(window) = get_or_create(app) else {
             return;
         };
-        let _ = window.show();
+        if let Err(error) = window.show() {
+            log::error!("显示悬浮球窗口失败: {error}");
+        }
     } else if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-        let _ = window.hide();
+        if let Err(error) = window.hide() {
+            log::error!("隐藏悬浮球窗口失败: {error}");
+        }
     }
 }
 
@@ -148,7 +161,9 @@ pub(crate) fn show_for_debug(app: &tauri::AppHandle) {
     let Some(window) = get_or_create(app) else {
         return;
     };
-    let _ = window.show();
+    if let Err(error) = window.show() {
+        log::error!("显示调试悬浮球窗口失败: {error}");
+    }
 }
 
 /// 拖动结束后按窗口中心吸附到当前显示器左右边缘，并返回可持久化位置。
