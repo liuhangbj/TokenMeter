@@ -257,6 +257,9 @@ export default function FloatingOrb() {
 
   const beginCollapsedGesture = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
+    // 鼠标快速移出小球时仍需收到首个 pointermove；Windows 自动化和高 DPI
+    // 鼠标都可能一次跨过数十像素，不能依赖指针始终停留在按钮命中区内。
+    event.currentTarget.setPointerCapture(event.pointerId);
     collapsedPointer.current = {
       pointerId: event.pointerId,
       x: event.screenX,
@@ -279,6 +282,9 @@ export default function FloatingOrb() {
   const endCollapsedGesture = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (collapsedPointer.current?.pointerId === event.pointerId) {
       collapsedPointer.current = null;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
 
