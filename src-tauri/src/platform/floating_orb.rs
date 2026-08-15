@@ -6,10 +6,40 @@
 use crate::core::settings::{FloatingOrbEdge, FloatingOrbSettings, Theme};
 use tauri::{LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
 
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+};
+
 pub const WINDOW_LABEL: &str = "floating-orb";
 const EXPANDED_W: f64 = 156.0;
 const EXPANDED_MAX_H: f64 = 536.0;
 const EDGE_MARGIN: f64 = 10.0;
+
+/// Tauri/tao 的 `skip_taskbar(true)` 在 Windows 只调用 ITaskbarList::DeleteTab，
+/// 不会写入 WS_EX_TOOLWINDOW；Explorer 重启后窗口仍可能重新出现在任务栏。
+/// 这里把语义固化到原生扩展样式，并显式移除 WS_EX_APPWINDOW。
+#[cfg(target_os = "windows")]
+fn harden_windows_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    unsafe {
+        let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let hardened = (current | WS_EX_TOOLWINDOW.0 as isize) & !(WS_EX_APPWINDOW.0 as isize);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, hardened);
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
 
 fn layout_size(collapsed: bool, account_count: usize, theme: Theme) -> (f64, f64) {
     if collapsed {
@@ -42,7 +72,7 @@ pub fn get_or_create(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     let account_count = crate::core::store::configured_accounts().len();
     let (width, height) = layout_size(current.floating_orb.collapsed, account_count, current.theme);
 
-    WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
+    let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("index.html".into()))
         .title("TokenMeter Floating Orb")
         .inner_size(width, height)
         .resizable(false)
@@ -60,7 +90,16 @@ pub fn get_or_create(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         .visible(false)
         .build()
         .map_err(|error| log::error!("创建悬浮球窗口失败: {error}"))
-        .ok()
+        .ok()?;
+
+    #[cfg(target_os = "windows")]
+    if let Err(error) = harden_windows_window(&window) {
+        log::error!("加固 Windows 悬浮球窗口样式失败: {error}");
+        let _ = window.close();
+        return None;
+    }
+
+    Some(window)
 }
 
 fn selected_monitor(

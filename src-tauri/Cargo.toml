@@ -34,6 +34,9 @@ tauri-plugin-single-instance = "2"
 tempfile = "3"
 open = { version = "5", features = ["shellexecute-on-windows"] }
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+
 [features]
 # 生产/独立二进制必需：启用后前端资源内嵌进 exe（custom protocol），
 # 否则即使 release 构建也会按 dev 模式去连 devUrl（localhost:1420），
