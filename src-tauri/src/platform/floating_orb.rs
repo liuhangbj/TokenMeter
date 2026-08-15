@@ -37,7 +37,22 @@ fn harden_windows_window(window: &tauri::WebviewWindow) -> Result<(), String> {
             SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
         )
         .map_err(|error| error.to_string())?;
+        let applied = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if applied & WS_EX_TOOLWINDOW.0 as isize == 0 || applied & WS_EX_APPWINDOW.0 as isize != 0 {
+            return Err(format!(
+                "扩展样式写入后不一致: expected=TOOLWINDOW,!APPWINDOW actual=0x{applied:X}"
+            ));
+        }
     }
+    Ok(())
+}
+
+/// 所有调用点都位于 Tauri 主线程；此时 `show()` 会同步应用 tao 的窗口状态。
+/// Windows 原生样式必须在 show 之后写入，否则 tao 会用内部状态覆盖 TOOLWINDOW。
+fn show_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "windows")]
+    harden_windows_window(window)?;
     Ok(())
 }
 
@@ -91,13 +106,6 @@ pub fn get_or_create(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         .build()
         .map_err(|error| log::error!("创建悬浮球窗口失败: {error}"))
         .ok()?;
-
-    #[cfg(target_os = "windows")]
-    if let Err(error) = harden_windows_window(&window) {
-        log::error!("加固 Windows 悬浮球窗口样式失败: {error}");
-        let _ = window.close();
-        return None;
-    }
 
     Some(window)
 }
@@ -182,7 +190,7 @@ pub fn sync_visibility(app: &tauri::AppHandle, settings: &FloatingOrbSettings, t
         let Some(window) = get_or_create(app) else {
             return;
         };
-        if let Err(error) = window.show() {
+        if let Err(error) = show_window(&window) {
             log::error!("显示悬浮球窗口失败: {error}");
         }
     } else if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
@@ -200,7 +208,7 @@ pub(crate) fn show_for_debug(app: &tauri::AppHandle) {
     let Some(window) = get_or_create(app) else {
         return;
     };
-    if let Err(error) = window.show() {
+    if let Err(error) = show_window(&window) {
         log::error!("显示调试悬浮球窗口失败: {error}");
     }
 }
