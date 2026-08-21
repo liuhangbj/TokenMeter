@@ -59,10 +59,8 @@ jobs:
           tagName: v__VERSION__
           releaseName: "TokenMeter v__VERSION__"
           releaseBody: |
-            - Windows 悬浮球不再抢走当前应用焦点，并继续保持置顶且不进入任务栏
-            - 收起小球区分普通点击与拖动，单击稳定展开，移动超过阈值后才拖动窗口
-            - 启动定位、DPI 变化和程序调整尺寸不再误触发边缘吸附
-            - 新增 Windows 悬浮球运行时验收，覆盖收起展开、拖动吸附与窗口样式
+            - 重置倒计时精确到分钟（如"3 小时 25 分钟后重置"）
+            - README 全面重写：无窗口模式、多平台接入、三套主题、桌面免费四大亮点，附最新界面截图
 
             macOS 提供 Apple Silicon 与 Intel DMG，Windows 提供 x64 安装包。
           releaseDraft: true
