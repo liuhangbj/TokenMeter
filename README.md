@@ -1,26 +1,40 @@
 # TokenMeter
 
-跨平台菜单栏 App，一眼看清你所有 AI 平台的 token / 额度用量。
+一眼看清所有 AI 账户余量的菜单栏小组件。
 
-macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各平台额度、余额、重置倒计时一屏打尽。
+没有主窗口、不打断工作流——状态栏一点、悬浮球一瞥，套餐余量、API 余额、重置倒计时全在手上。
 
-## 功能
+![TokenMeter 面板](docs/screenshots/popover-light.png)
 
-- **托盘下拉面板**：额度条 + 余额 + 重置倒计时，5 段警示色（绿→橙→红）一眼识别紧张度
-- **主题系统**：风格与明暗外观独立；Classic、Claude 和 Cyber 均支持浅色、深色与跟随系统
-- **卡片排序**：上下箭头自定义顺序，持久化记忆
-- **自适应高度**：内容少时紧凑，多了才滚动
-- **添加供应商向导**：API Key 表单 / OAuth 浏览器授权 / 本机 CLI 凭证一键导入
-- **凭证安全**：AES-256-GCM 加密存储，token 过期自动刷新
-- **后台刷新**：间隔可调（1–30 分钟），打开面板立即刷新
-- **开机启动**：可选
-- **零数据库**：除配置文件外不产生本地数据，用量曲线点"查看详情"跳官方控制台
+## 为什么用 TokenMeter
+
+### 🪟 无窗口模式，随时掌握
+
+没有需要管理的主窗口。macOS 菜单栏 / Windows 托盘常驻，点击展开面板；桌面悬浮球以水位线实时呈现各账户余量，瞄一眼就知道还能用多少，不用时收成一颗小球安静待在屏幕边缘。
+
+### 🧩 多平台接入，一个面板全掌握
+
+OpenAI Codex、Claude、Kimi、DeepSeek、Gemini、GLM、MiniMax、OpenRouter、火山引擎、SiliconFlow……订阅套餐和按量 API 统一成一套语言：余量百分比、余额、重置倒计时。17 个平台接口持续增加，新平台只需字段映射即可接入。
+
+### 🎨 三套主题，三种质感
+
+Classic 的苹果原生清透、Claude 的羊皮纸温润、Cyber 的赛博光影，风格与明暗外观独立组合，连悬浮球都有各自的设计语言。
+
+### 🆓 桌面端完全免费
+
+macOS（Apple Silicon / Intel）与 Windows 全部功能免费开放，MIT 协议。iOS 移动端规划中。
+
+## 界面预览
+
+| 面板 · 浅色 | 面板 · 深色 | 桌面悬浮球 |
+|------------|------------|-----------|
+| ![面板浅色](docs/screenshots/popover-light.png) | ![面板深色](docs/screenshots/popover-dark.png) | ![悬浮球](docs/screenshots/floating-orbs.png) |
 
 ## 支持平台
 
 | 平台 | 类型 | 数据来源 | 状态 |
 |------|------|---------|------|
-| OpenAI Codex | 订阅（5h/7d 额度） | OAuth / 本机 CLI | ✅ |
+| OpenAI Codex | 订阅（5h/7d 额度 + Credit） | OAuth / 本机 CLI | ✅ |
 | OpenAI Platform | 按量（花费 + token 用量） | Admin API Key | ✅ |
 | Claude | 订阅（5h/7d/Extra Usage） | OAuth / 本机 Claude Code | 🧪 待套餐账号实测 |
 | Anthropic API | 按量（成本 + token 用量） | Admin API Key | ✅ |
@@ -47,6 +61,17 @@ macOS 菜单栏 / Windows 任务栏托盘常驻，点击展开下拉面板，各
 | Ali Qwen (通义千问) | 阿里云百炼 API |
 
 > 完整开发顺序见 [docs/06-roadmap.md](docs/06-roadmap.md)，各平台接口调研与字段确认记录见 [docs/01-provider-matrix.md](docs/01-provider-matrix.md)。欢迎 PR 补充。
+
+## 更多特性
+
+- **卡片排序**：上下箭头自定义顺序，持久化记忆
+- **自适应高度**：内容少时紧凑，多了才滚动
+- **添加供应商向导**：API Key 表单 / OAuth 浏览器授权 / 本机 CLI 凭证一键导入
+- **凭证安全**：AES-256-GCM 加密存储，token 过期自动刷新
+- **后台刷新**：间隔可调（1–30 分钟），打开面板立即刷新
+- **自动更新**：自动检测、下载，一键升级重启
+- **开机启动**：可选
+- **零数据库**：除配置文件外不产生本地数据，用量曲线点"查看详情"跳官方控制台
 
 ## 安装
 
@@ -105,6 +130,7 @@ src-tauri/src/
 │   └── oauth_codex.rs       # Codex PKCE / Kimi 设备码 OAuth
 ├── platform/                # Platform Shell：平台差异集中地
 │   ├── tray.rs              # 托盘/菜单栏（macOS 顶部、Windows 任务栏）
+│   ├── floating_orb.rs      # 桌面悬浮球（水位线/收起/多主题）
 │   └── mod.rs               # macOS Accessory 策略、系统浏览器打开
 ├── commands.rs              # IPC 薄层（前端 ↔ core/platform）
 └── main.rs                  # 组装根：插件、窗口事件、退出守卫
