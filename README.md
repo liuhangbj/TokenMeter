@@ -26,9 +26,15 @@ macOS（Apple Silicon / Intel）与 Windows 全部功能免费开放，MIT 协�
 
 ## 界面预览
 
-| 面板 · 浅色 | 面板 · 深色 | 桌面悬浮球 |
-|------------|------------|-----------|
-| ![面板浅色](docs/screenshots/popover-light.png) | ![面板深色](docs/screenshots/popover-dark.png) | ![悬浮球](docs/screenshots/floating-orbs.png) |
+| 面板 · 浅色 | 面板 · 深色 |
+|------------|------------|
+| ![面板浅色](docs/screenshots/popover-light.png) | ![面板深色](docs/screenshots/popover-dark.png) |
+
+悬浮球随主题换肤——Classic 磨砂胶囊、Claude 纸质书签、Cyber 星球水位：
+
+| Classic | Claude | Cyber |
+|---------|--------|-------|
+| ![Classic 悬浮球](docs/screenshots/orb-classic.png) | ![Claude 悬浮球](docs/screenshots/orb-claude.png) | ![Cyber 悬浮球](docs/screenshots/orb-cyber.png) |
 
 ## 支持平台
 
