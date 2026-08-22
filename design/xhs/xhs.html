@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1242px; height: 1656px; }
+  body {
+    font-family: "PingFang SC", -apple-system, "Helvetica Neue", sans-serif;
+    background:
+      radial-gradient(900px 700px at 85% -5%, rgba(14,124,107,.10), transparent 60%),
+      radial-gradient(800px 600px at -10% 100%, rgba(196,102,58,.08), transparent 55%),
+      #F5F1E8;
+    color: #26221B;
+    overflow: hidden;
+    position: relative;
+  }
+  .page { width: 1242px; height: 1656px; padding: 64px 72px 56px; display: none; flex-direction: column; position: relative; }
+  .page.on { display: flex; }
+
+  /* 头部 */
+  .head { display: flex; align-items: center; gap: 18px; }
+  .head img.logo { width: 64px; height: 64px; border-radius: 16px; box-shadow: 0 6px 18px rgba(38,34,27,.18); }
+  .head .word { font-size: 30px; font-weight: 700; letter-spacing: .02em; }
+  .head .kicker { margin-left: auto; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 19px; color: #0E7C6B; letter-spacing: .14em; text-transform: uppercase; }
+
+  .title { font-size: 92px; line-height: 1.14; font-weight: 800; letter-spacing: .01em; margin-top: 54px; }
+  .title .accent { color: #0E7C6B; }
+  .subtitle { font-size: 30px; line-height: 1.6; color: #6B6459; margin-top: 26px; font-weight: 500; }
+
+  /* 截图卡片 */
+  .shot { border-radius: 28px; box-shadow: 0 30px 70px rgba(38,34,27,.22), 0 4px 14px rgba(38,34,27,.10); background: #fff; }
+  .shot.dark { box-shadow: 0 30px 70px rgba(15,20,26,.45), 0 4px 14px rgba(15,20,26,.2); }
+
+  /* 底部 */
+  .foot { margin-top: auto; display: flex; align-items: center; }
+  .dots { display: flex; gap: 10px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: #CFC7B8; }
+  .dots i.on { background: #0E7C6B; width: 30px; border-radius: 6px; }
+  .foot .note { margin-left: auto; font-size: 21px; color: #8A8273; font-family: ui-monospace, Menlo, monospace; }
+
+  .badge-row { display: flex; gap: 16px; margin-top: 40px; }
+  .badge { font-size: 24px; font-weight: 600; padding: 14px 26px; border-radius: 999px; background: rgba(14,124,107,.10); color: #0B5F52; border: 1.5px solid rgba(14,124,107,.25); }
+
+  /* P1 封面 */
+  .hero { position: relative; margin-top: 60px; flex: 1; }
+  .hero .panel { position: absolute; left: 0; top: 0; height: 900px; }
+  .hero .orb { position: absolute; right: -6px; bottom: 40px; height: 620px; border-radius: 60px; }
+  .hero .chip { position: absolute; right: 24px; top: 30px; background: #26221B; color: #F5F1E8; font-size: 23px; font-weight: 600; padding: 16px 24px; border-radius: 18px; line-height: 1.5; }
+
+  /* P2 悬浮球 */
+  .orb-grid { display: flex; gap: 34px; margin-top: 56px; flex: 1; }
+  .orb-col { flex: 1; background: rgba(255,255,255,.55); border: 1.5px solid rgba(38,34,27,.07); border-radius: 32px; padding: 30px 18px 24px; display: flex; flex-direction: column; align-items: center; backdrop-filter: blur(6px); }
+  .orb-col .big { height: 470px; object-fit: contain; }
+  .orb-col .small { height: 130px; object-fit: contain; margin-top: 26px; }
+  .orb-col .tname { margin-top: auto; padding-top: 22px; font-family: ui-monospace, Menlo, monospace; font-size: 24px; font-weight: 700; color: #0E7C6B; letter-spacing: .06em; }
+  .orb-col .tdesc { font-size: 20px; color: #8A8273; margin-top: 6px; }
+
+  /* P3 平台 */
+  .plat-wrap { display: flex; gap: 48px; margin-top: 56px; flex: 1; align-items: flex-start; }
+  .plat-wrap .panel { height: 940px; }
+  .plat-list { flex: 1; display: flex; flex-wrap: wrap; gap: 14px; align-content: flex-start; padding-top: 6px; }
+  .chip-p { font-size: 23px; font-weight: 600; padding: 13px 22px; border-radius: 14px; background: #fff; border: 1.5px solid rgba(38,34,27,.10); color: #3A352C; box-shadow: 0 3px 10px rgba(38,34,27,.06); }
+  .chip-p.more { background: rgba(14,124,107,.10); border-color: rgba(14,124,107,.25); color: #0B5F52; }
+  .plat-note { font-size: 24px; line-height: 1.7; color: #6B6459; margin-top: 30px; }
+
+  /* P4 主题 */
+  .theme-row { display: flex; gap: 30px; margin-top: 56px; flex: 1; align-items: flex-start; }
+  .theme-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
+  .theme-item img { width: 100%; border-radius: 24px; }
+  .theme-item .tname { margin-top: 22px; font-family: ui-monospace, Menlo, monospace; font-size: 26px; font-weight: 700; letter-spacing: .05em; }
+  .theme-item .tdesc { font-size: 21px; color: #6B6459; margin-top: 8px; }
+
+  /* P5 预警 */
+  .warn-wrap { display: flex; gap: 46px; margin: auto 0; align-items: center; }
+  .warn-wrap img { width: 580px; }
+  .warn-list { flex: 1; display: flex; flex-direction: column; gap: 30px; }
+  .warn-item { display: flex; gap: 18px; align-items: flex-start; }
+  .warn-item .dot { width: 18px; height: 18px; border-radius: 50%; margin-top: 12px; flex-shrink: 0; }
+  .warn-item .txt { font-size: 28px; line-height: 1.55; font-weight: 600; color: #3A352C; }
+  .warn-item .txt small { display: block; font-size: 22px; color: #8A8273; font-weight: 500; margin-top: 4px; }
+
+  /* P6 免费 */
+  .free-hero { flex: 1; position: relative; margin-top: 30px; }
+  .free-hero .panel { position: absolute; right: 0; top: 0; height: 690px; }
+  .free-hero .orbs { position: absolute; left: 0; bottom: 30px; display: flex; gap: 20px; align-items: flex-end; }
+  .free-hero .orbs img { height: 120px; border-radius: 20px; box-shadow: 0 16px 36px rgba(38,34,27,.18); }
+  .os-row { display: flex; gap: 16px; margin-top: 44px; }
+  .os { font-size: 26px; font-weight: 700; padding: 18px 30px; border-radius: 18px; background: #26221B; color: #F5F1E8; }
+  .os.soon { background: rgba(38,34,27,.07); color: #6B6459; border: 1.5px dashed rgba(38,34,27,.25); }
+  .gh { margin-top: 34px; font-family: ui-monospace, Menlo, monospace; font-size: 26px; color: #0E7C6B; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- P1 封面 -->
+<section class="page" id="p1">
+  <div class="head"><img class="logo" src="icon.png"><span class="word">TokenMeter</span><span class="kicker">AI 额度管家</span></div>
+  <div class="title">你的 <span class="accent">AI 额度</span><br>一眼看清</div>
+  <div class="subtitle">菜单栏小组件：套餐余量、API 余额、重置倒计时<br>Codex · Claude · Kimi · DeepSeek 一个面板全掌握</div>
+  <div class="hero">
+    <img class="shot panel" src="popover-light.png">
+    <img class="shot dark orb" src="orb-big-cyber.png">
+    <div class="chip">17 个平台接口<br>持续接入中</div>
+  </div>
+  <div class="badge-row"><span class="badge">无窗口设计</span><span class="badge">桌面悬浮球</span><span class="badge">三套主题</span><span class="badge">完全免费</span></div>
+  <div class="foot"><div class="dots"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div><span class="note">macOS · Windows 免费下载</span></div>
+</section>
+
+<!-- P2 悬浮球 -->
+<section class="page" id="p2">
+  <div class="head"><img class="logo" src="icon.png"><span class="word">TokenMeter</span><span class="kicker">01 / 无窗口设计</span></div>
+  <div class="title">不用打开 App<br>它<span class="accent">一直在手边</span></div>
+  <div class="subtitle">大球看详情，小球知余量；不用时收成一颗小球<br>安静贴在屏幕边缘，三套主题三种皮肤</div>
+  <div class="orb-grid">
+    <div class="orb-col"><img class="big" src="orb-big-classic.png"><img class="small" src="orb-classic.png"><div class="tname">Classic</div><div class="tdesc">磨砂胶囊 · 原生清透</div></div>
+    <div class="orb-col"><img class="big" src="orb-big-claude.png"><img class="small" src="orb-claude.png"><div class="tname">Claude</div><div class="tdesc">纸质书签 · 温润书卷气</div></div>
+    <div class="orb-col"><img class="big" src="orb-big-cyber.png"><img class="small" src="orb-cyber.png"><div class="tname">Cyber</div><div class="tdesc">星球水位 · 赛博光影</div></div>
+  </div>
+  <div class="foot"><div class="dots"><i></i><i class="on"></i><i></i><i></i><i></i><i></i></div><span class="note">悬浮球 · 大球 + 小球 × 3 主题</span></div>
+</section>
+
+<!-- P3 多平台 -->
+<section class="page" id="p3">
+  <div class="head"><img class="logo" src="icon.png"><span class="word">TokenMeter</span><span class="kicker">02 / 多平台接入</span></div>
+  <div class="title">一个面板<br><span class="accent">盯紧所有 AI 账户</span></div>
+  <div class="plat-wrap">
+    <img class="shot panel" src="wizard-add.png">
+    <div>
+      <div class="plat-list">
+        <span class="chip-p">OpenAI Codex</span><span class="chip-p">Claude</span><span class="chip-p">Kimi Code</span><span class="chip-p">DeepSeek</span><span class="chip-p">Gemini</span><span class="chip-p">GLM</span><span class="chip-p">MiniMax</span><span class="chip-p">OpenRouter</span><span class="chip-p">Moonshot</span><span class="chip-p">Anthropic API</span><span class="chip-p">OpenAI API</span><span class="chip-p">火山引擎</span><span class="chip-p">SiliconFlow</span><span class="chip-p">腾讯 TokenHub</span><span class="chip-p more">持续接入中 …</span>
+      </div>
+      <div class="plat-note">OAuth 授权 / 本机 CLI 凭证导入 / API Key，<br>三种方式都是点几下就接好。<br>订阅套餐、按量 API、Token 资源包，<br>统一成一种语言：<b>余量百分比 + 余额</b>。</div>
+    </div>
+  </div>
+  <div class="foot"><div class="dots"><i></i><i></i><i class="on"></i><i></i><i></i><i></i></div><span class="note">订阅 / 按量 / Token 包全覆盖</span></div>
+</section>
+
+<!-- P4 三套主题 -->
+<section class="page" id="p4">
+  <div class="head"><img class="logo" src="icon.png"><span class="word">TokenMeter</span><span class="kicker">03 / 主题系统</span></div>
+  <div class="title">三套主题<br><span class="accent">三种性格</span></div>
+  <div class="subtitle">风格与明暗独立组合，悬浮球也跟着换肤</div>
+  <div class="theme-row">
+    <div class="theme-item"><img class="shot" src="panel-classic-light.png"><div class="tname" style="color:#3E6B8F">Classic</div><div class="tdesc">苹果原生清透</div></div>
+    <div class="theme-item"><img class="shot" src="popover-light.png"><div class="tname" style="color:#C4663A">Claude</div><div class="tdesc">羊皮纸温润</div></div>
+    <div class="theme-item"><img class="shot dark" src="panel-cyber-dark.png"><div class="tname" style="color:#0E7C6B">Cyber</div><div class="tdesc">赛博科技光影</div></div>
+  </div>
+  <div class="foot"><div class="dots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></div><span class="note">主题 × 明暗自由搭配</span></div>
+</section>
+
+<!-- P5 预警 -->
+<section class="page" id="p5">
+  <div class="head"><img class="logo" src="icon.png"><span class="word">TokenMeter</span><span class="kicker">04 / 健康度预警</span></div>
+  <div class="title">快见底了<br><span class="accent">它先变红</span></div>
+  <div class="warn-wrap">
+    <img class="shot" src="card-red.png">
+    <div class="warn-list">
+      <div class="warn-item"><i class="dot" style="background:#34C759"></i><div class="txt">五段水位色，绿到橙到红<small>余量健康度，瞟一眼就懂</small></div></div>
+      <div class="warn-item"><i class="dot" style="background:#FF9F0A"></i><div class="txt">重置倒计时精确到分钟<small>3 小时 25 分钟后重置，心里有数</small></div></div>
+      <div class="warn-item"><i class="dot" style="background:#FF3B30"></i><div class="txt">额度与余额分开盯<small>套餐余量、Credit、Extra Usage 各算各的</small></div></div>
+    </div>
+  </div>
+  <div class="foot"><div class="dots"><i></i><i></i><i></i><i></i><i class="on"></i><i></i></div><span class="note">健康色 · 五段水位</span></div>
+</section>
+
+<!-- P6 免费 -->
+<section class="page" id="p6">
+  <div class="head"><img class="logo" src="icon.png"><span class="word">TokenMeter</span><span class="kicker">05 / 免费下载</span></div>
+  <div class="title">桌面端<br><span class="accent">完全免费</span></div>
+  <div class="subtitle">开源 MIT 协议 · 凭证本地加密存储 · 零数据库<br>自动更新，一键升级重启</div>
+  <div class="os-row"><span class="os">macOS Apple Silicon</span><span class="os">macOS Intel</span><span class="os">Windows</span><span class="os soon">iOS 规划中</span></div>
+  <div class="gh">github.com/liuhangbj/TokenMeter</div>
+  <div class="free-hero">
+    <img class="shot panel" src="popover-dark.png">
+    <div class="orbs"><img src="orb-classic.png"><img src="orb-claude.png"><img src="orb-cyber.png"></div>
+  </div>
+  <div class="foot"><div class="dots"><i></i><i></i><i></i><i></i><i></i><i class="on"></i></div><span class="note">TokenMeter · AI 额度管家</span></div>
+</section>
+
+<script>
+  const p = new URLSearchParams(location.search).get("p") || "1";
+  document.getElementById("p" + p).classList.add("on");
+</script>
+</body>
+</html>
