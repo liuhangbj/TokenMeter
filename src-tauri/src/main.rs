@@ -106,6 +106,7 @@ async fn main() {
             commands::get_account_cards,
             commands::list_addable_providers,
             commands::on_panel_open,
+            commands::debug_auto_panel,
             commands::get_settings,
             commands::set_general_settings,
             commands::set_floating_orb_active_account,

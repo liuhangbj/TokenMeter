@@ -241,8 +241,14 @@ export default function App() {
     };
   }, [load]);
 
-  // 调试钩子：后端 TOKENMETER_AUTO_PANEL=1 启动时自动进入"添加供应商"视图
+  // 调试钩子：后端 TOKENMETER_AUTO_PANEL=1 启动时自动进入"添加供应商"视图。
+  // 事件（push）可能早于前端监听注册而丢失，因此挂载时再主动拉取（pull）一次。
   useEffect(() => {
+    invoke<boolean>("debug_auto_panel")
+      .then((auto) => {
+        if (auto) setView("add");
+      })
+      .catch(() => {});
     const un = listen("debug-auto-panel", () => setView("add"));
     return () => {
       un.then((f) => f());

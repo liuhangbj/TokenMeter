@@ -113,6 +113,13 @@ pub fn on_panel_open(ctl: State<SchedulerCtl>) {
     ctl.trigger_refresh();
 }
 
+/// 调试钩子查询：TOKENMETER_AUTO_PANEL=1 时返回 true。
+/// 前端挂载后主动拉取（pull），避免后端 emit 早于前端监听器注册造成的事件丢失。
+#[tauri::command]
+pub fn debug_auto_panel() -> bool {
+    std::env::var("TOKENMETER_AUTO_PANEL").as_deref() == Ok("1")
+}
+
 /// 读取设置（core 层文件存储）。
 #[tauri::command]
 pub fn get_settings() -> Settings {
