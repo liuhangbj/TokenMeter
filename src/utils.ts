@@ -34,7 +34,7 @@ export function statusDotClass(status: HealthStatus, maxLv: number): string {
   }
 }
 
-/** Unix 秒 → 精确到分钟的 "X 天 X 小时后重置" / "X 小时 X 分钟后重置" */
+/** Unix 秒 → 精确到分钟的重置倒计时，按量级拼接 天/小时/分钟 */
 export function resetIn(resetAt: number | null): string {
   if (!resetAt) return "";
   const secs = resetAt - Math.floor(Date.now() / 1000);
@@ -42,9 +42,11 @@ export function resetIn(resetAt: number | null): string {
   const d = Math.floor(secs / 86400);
   const h = Math.floor((secs % 86400) / 3600);
   const m = Math.floor((secs % 3600) / 60);
-  if (d > 0) return h > 0 ? `${d} 天 ${h} 小时后重置` : `${d} 天后重置`;
-  if (h > 0) return m > 0 ? `${h} 小时 ${m} 分钟后重置` : `${h} 小时后重置`;
-  return m > 0 ? `${m} 分钟后重置` : "即将重置";
+  const parts: string[] = [];
+  if (d > 0) parts.push(`${d} 天`);
+  if (h > 0) parts.push(`${h} 小时`);
+  if (m > 0) parts.push(`${m} 分钟`);
+  return parts.length > 0 ? `${parts.join(" ")}后重置` : "即将重置";
 }
 
 /** Unix 秒 → "X 分钟前" */

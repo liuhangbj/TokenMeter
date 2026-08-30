@@ -14,7 +14,7 @@
 
 ### 🧩 多平台接入，一个面板全掌握
 
-OpenAI Codex、Claude、Kimi、DeepSeek、Gemini、GLM、MiniMax、OpenRouter、火山引擎、SiliconFlow……订阅套餐和按量 API 统一成一套语言：余量百分比、余额、重置倒计时。17 个平台接口持续增加，新平台只需字段映射即可接入。
+OpenAI Codex、Claude、Kimi、DeepSeek、Gemini、GLM、MiniMax、OpenRouter、火山引擎、SiliconFlow……订阅套餐和按量 API 统一成一套语言：余量百分比、余额、重置倒计时。16 个平台接口已开放接入，持续增加，新平台只需字段映射即可接入。
 
 ### 🎨 三套主题，三种质感
 
