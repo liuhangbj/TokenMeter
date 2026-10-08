@@ -79,8 +79,20 @@ TokenMeter 的核心定位是：**在一个简洁的托盘面板中，一眼看�
 ### D. Gemini 与 SiliconFlow
 
 - ✅ Gemini 对齐 Google 官方 Gemini CLI：Google OAuth、本机 CLI 凭证导入、套餐档位、模型配额桶、重置时间和 AI Credits。
-- ✅ SiliconFlow 支持国内/国际站 API Key，总余额、充值余额和赠送余额映射到统一卡片。
-- ⏳ 两家均待真实账户保存脱敏响应样本并完成跨平台验收。
+- ✅ SiliconFlow 国际站保留 API Key 接入，总余额、充值余额和赠送余额映射到统一卡片。
+- ⏸ SiliconFlow 中国站官方 `/user/info` 已于 2026-08-14 停服：不再接受中国站新增，既有账户与凭证保留，卡片显示无余额的降级状态并保留管理/删除与控制台入口，等待官方替代 API。
+- ⏳ Gemini 与 SiliconFlow 国际站均待真实账户保存脱敏响应样本并完成跨平台验收。
+
+### E. 腾讯 TokenHub 企业 Token Plan
+
+- ⏸ 暂停新增入口。公开 `DescribeTokenPlan` schema 只有本期上限和跨周期累计用量，
+  没有可验证的套餐级本期已用/剩余额度；不得据此计算 0–100% 主值。
+- ⏸ 国际站虽提供同名 Action/Version，但使用独立签名 Host；在未获授权扩展该网络
+  与签名边界、且没有真实账号验收前，不发送历史国际配置的 SecretId/SecretKey。
+- ✅ 既有账户、凭证与管理/删除入口保留，刷新生成无余额、无额度窗口的
+  Partial/Degraded 新快照并显示原因，不继续展示旧缓存或推测值。
+- ⏳ 恢复条件：官方套餐级本期余量字段 + 经授权脱敏响应样本 + 国内/国际各自签名
+  Host 的隔离真实账号验收。
 
 接入步骤：
 

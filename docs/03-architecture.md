@@ -282,8 +282,10 @@ pub struct Scheduler {
 OpenAI          Kimi              DeepSeek        腾讯云
 ├ Codex 订阅    ├ Kimi Code       └ DeepSeek      ├ Coding Plan
 └ API Platform  └ Moonshot API                    ├ Token Plan
-                                                  └ TokenHub 按量
 ```
+
+腾讯 TokenHub Token Plan 企业版当前也隐藏新增入口：官方公开契约尚不能证明套餐级
+本期余量。既有账户保留为明确降级态，待字段与脱敏样本闭合后再恢复。
 
 卡片右下角标注认证方式徽章（`浏览器授权` / `API Key` / `云密钥`），让用户提前知道要准备什么。
 
@@ -340,7 +342,7 @@ TokenMeter/
 
 **M1 骨架** — Tauri 壳 + 托盘 + Provider trait + Keychain + SQLite
 
-**M2 官方路径** — Moonshot / DeepSeek 余额、腾讯 Token Plan + TokenHub 按量、OpenAI Platform。全部走官方 API，风险最低，先跑通闭环。
+**M2 官方路径** — Moonshot / DeepSeek 余额、OpenAI Platform。腾讯 TokenHub Token Plan 企业版因套餐级本期余量字段缺证暂停新增，不计入已跑通闭环。
 
 **M3 OAuth 路径** — Codex + Kimi Code，含本机凭证探测。
 

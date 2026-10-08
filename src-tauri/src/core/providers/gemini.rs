@@ -289,7 +289,7 @@ impl Provider for GeminiProvider {
     }
 
     fn add_description(&self) -> &'static str {
-        "模型额度与 AI Credits"
+        "Standard / Enterprise 模型额度"
     }
 
     fn detail_url(&self) -> Option<&'static str> {
@@ -310,10 +310,14 @@ impl Provider for GeminiProvider {
 
     fn plan_tier(&self, plan_name: &str) -> Option<u8> {
         let name = plan_name.to_ascii_lowercase();
-        if name.contains("free") {
+        if name.contains("contract") || name.contains("custom") {
+            None
+        } else if name.contains("free") {
             Some(0)
         } else if name.contains("ultra") {
             Some(5)
+        } else if name.contains("enterprise") {
+            Some(3)
         } else if name.contains("pro") || name.contains("standard") || name.contains("advanced") {
             Some(2)
         } else {
@@ -514,6 +518,10 @@ mod tests {
         assert_eq!(provider.plan_tier("free-tier"), Some(0));
         assert_eq!(provider.plan_tier("Google AI Pro"), Some(2));
         assert_eq!(provider.plan_tier("Google AI Ultra"), Some(5));
+        assert_eq!(provider.plan_tier("Gemini Code Assist Standard"), Some(2));
+        assert_eq!(provider.plan_tier("Gemini Code Assist Enterprise"), Some(3));
+        assert_eq!(provider.plan_tier("Enterprise Contract"), None);
+        assert_eq!(provider.plan_tier("Custom Contract"), None);
     }
 
     #[test]

@@ -59,8 +59,10 @@ jobs:
           tagName: v__VERSION__
           releaseName: "TokenMeter v__VERSION__"
           releaseBody: |
-            - 重置倒计时精确到分钟（如"3 小时 25 分钟后重置"）
-            - README 全面重写：无窗口模式、多平台接入、三套主题、桌面免费四大亮点，附最新界面截图
+            - Codex 套餐识别更新：支持 Pro 100 / Pro 200 / Pro 500，修正套餐徽章档位与主题配色
+            - Codex 独立额度窗口完整展示，并保持主额度与 Credit 健康语义互不干扰
+            - Claude、Gemini、OpenRouter、SiliconFlow 等供应商字段映射与异常降级更稳健
+            - 修复 macOS 27 菜单栏图标点击兼容性
 
             macOS 提供 Apple Silicon 与 Intel DMG，Windows 提供 x64 安装包。
           releaseDraft: true

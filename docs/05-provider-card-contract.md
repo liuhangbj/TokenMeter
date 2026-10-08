@@ -38,7 +38,7 @@ TokenMeter 的前端只消费 `AccountCardModel`，不读取各供应商原始�
 |---|---|---|---|
 | Gemini Code Assist | Google OAuth / Gemini CLI 凭证 | 最长周期模型配额余量 | 全部模型桶、重置时间、AI Credits |
 | 火山引擎 | 费用中心 AK/SK | `AvailableBalance` | `CashBalance`、`CreditLimit`、`FreezeAmount`、`ArrearsBalance` |
-| SiliconFlow | 国内/国际站 API Key | `totalBalance` | `chargeBalance`、`balance` |
+| SiliconFlow | 国际站 API Key | `totalBalance` | `chargeBalance`、`balance`；既有中国站账户显示接口停服降级态，不显示旧余额 |
 
 Gemini AI Studio 的普通 API Key 当前没有可用的账户余额/套餐额度接口，因此不创建
 无法满足主值契约的空壳入口。火山方舟推理 API Key 与费用中心 AK/SK 也不能混用。

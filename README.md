@@ -14,7 +14,7 @@
 
 ### 🧩 多平台接入，一个面板全掌握
 
-OpenAI Codex、Claude、Kimi、DeepSeek、Gemini、GLM、MiniMax、OpenRouter、火山引擎、SiliconFlow……订阅套餐和按量 API 统一成一套语言：余量百分比、余额、重置倒计时。16 个平台接口已开放接入，持续增加，新平台只需字段映射即可接入。
+OpenAI Codex、Claude、Kimi、DeepSeek、Gemini、GLM、MiniMax、OpenRouter、火山引擎、SiliconFlow 国际站……订阅套餐和按量 API 统一成一套语言：余量百分比、余额、重置倒计时。15 个平台接口已开放接入，持续增加，新平台只需字段映射即可接入。
 
 ### 🎨 三套主题，三种质感
 
@@ -44,7 +44,7 @@ macOS（Apple Silicon / Intel）与 Windows 全部功能免费开放，MIT 协�
 | OpenAI Platform | 按量（花费 + token 用量） | Admin API Key | ✅ |
 | Claude | 订阅（5h/7d/Extra Usage） | OAuth / 本机 Claude Code | 🧪 待套餐账号实测 |
 | Anthropic API | 按量（成本 + token 用量） | Admin API Key | ✅ |
-| OpenRouter | 按量（Credits + Key 预算） | OAuth / API Key | ✅ |
+| OpenRouter | 按量（Key 预算；Management Key 可读 Credits） | OAuth / API Key | ✅ |
 | Kimi Code | 订阅（5h/周/Extra Usage） | 设备码 OAuth / 本机 CLI | ✅ |
 | Moonshot | 按量余额 | API Key | ✅ |
 | DeepSeek | 按量余额 | API Key | ✅ |
@@ -52,10 +52,10 @@ macOS（Apple Silicon / Intel）与 Windows 全部功能免费开放，MIT 协�
 | GLM API | 按量（现金 + 资源包） | API Key | ✅ |
 | MiniMax Token Plan | 订阅（多模态额度） | Subscription Key / 本机 CLI | 🧪 待套餐账号实测 |
 | MiniMax API | 按量余额 | API Key | ✅ |
-| 腾讯 TokenHub | Token Plan（按总量扣减） | SecretId/Key | ✅ |
-| Gemini Code Assist | 订阅（模型配额 + AI Credits） | Google OAuth / 本机 Gemini CLI | 🧪 待套餐账号实测 |
+| 腾讯 TokenHub | Token Plan 企业版 | SecretId/Key + 地域 | ⏸ 新增暂停；官方公开契约缺少可验证的套餐级本期余量，既有账户保留管理并显示降级原因 |
+| Gemini Code Assist | Standard / Enterprise（模型配额 + AI Credits） | Google OAuth / 本机 Gemini CLI | 🧪 待企业套餐账号实测 |
 | 火山引擎 | 按量（可用/现金/信用/冻结/欠费） | 费用中心 Access Key / Secret Key | 🧪 待真实账号实测 |
-| SiliconFlow | 按量（总余额 + 充值/赠送余额） | API Key（国内/国际站） | 🧪 待真实账号实测 |
+| SiliconFlow | 按量（国际站总余额 + 充值/赠送余额） | API Key（国际站） | 🧪 待真实账号实测；中国站账户接口已停服，既有账户保留管理 |
 | 腾讯 Token Plan（个人版） | 订阅 | 无官方查询 API | 🔜 待官方开放 |
 | 腾讯 Coding Plan | 订阅 | 无官方 API | 🔜 待官方开放 |
 

@@ -1,7 +1,9 @@
 //! SiliconFlow 普通按量 API。
 //!
-//! 官方 `/v1/user/info` 返回账户状态与三类余额。`totalBalance` 作为主值，
-//! `chargeBalance`（充值）与 `balance`（活动/赠送）作为统一余额明细。
+//! 中国站官方已公告 `/v1/user/info` 于 2026-08-14 停止服务，且截至
+//! 2026-10-02 尚未公布账户级替代 API。国际站官方文档仍保留该接口，不能把
+//! 中国站公告外推到国际站。新账户只开放国际站；既有中国站账户保留但不再
+//! 发起必然失败的请求，而是返回无余额的明确降级快照。
 
 use super::*;
 use async_trait::async_trait;
@@ -38,16 +40,6 @@ fn endpoint(region: &str) -> (&'static str, &'static str) {
         ("https://api.siliconflow.com/v1/user/info", "USD")
     } else {
         ("https://api.siliconflow.cn/v1/user/info", "CNY")
-    }
-}
-
-fn credential(api_key: &str, region: &str, source: &str) -> Credential {
-    Credential {
-        data: serde_json::json!({
-            "api_key": api_key,
-            "region": region,
-            "source_kind": source,
-        }),
     }
 }
 
@@ -89,7 +81,7 @@ impl Provider for SiliconFlowProvider {
     }
 
     fn add_description(&self) -> &'static str {
-        "充值与赠送余额"
+        "国际站充值与赠送余额"
     }
 
     fn detail_url(&self) -> Option<&'static str> {
@@ -123,30 +115,15 @@ impl Provider for SiliconFlowProvider {
                     placeholder: "",
                     secret: false,
                     required: true,
-                    options: Some(vec![
-                        ("cn", "中国站（人民币）"),
-                        ("global", "国际站（美元）"),
-                    ]),
+                    options: Some(vec![("global", "国际站（美元）")]),
                 },
             ],
-            hint: "账户接口会返回总余额、充值余额与赠送余额；2025 年后用户名和邮箱字段固定为空。",
+            hint: "国际站账户接口返回总余额、充值余额与赠送余额。中国站 /user/info 已于 2026-08-14 停服，暂不接受新增；既有账户仍可管理或删除。",
         }
     }
 
     fn supports_local_import(&self) -> bool {
-        true
-    }
-
-    async fn detect_local(&self) -> Option<Credential> {
-        for name in ["SILICONFLOW_API_KEY", "SILICONFLOW_TOKEN"] {
-            if let Ok(value) = std::env::var(name) {
-                let value = value.trim();
-                if !value.is_empty() {
-                    return Some(credential(value, "cn", "environment"));
-                }
-            }
-        }
-        None
+        false
     }
 
     async fn fetch(&self, cred: &Credential) -> anyhow::Result<ProviderSnapshot> {
@@ -162,6 +139,25 @@ impl Provider for SiliconFlowProvider {
             .get("region")
             .and_then(Value::as_str)
             .unwrap_or("cn");
+        if !region.eq_ignore_ascii_case("global") {
+            return Ok(ProviderSnapshot {
+                account_id: String::new(),
+                account_label: None,
+                provider_id: self.id().into(),
+                display_name: self.display_name().into(),
+                plan_name: None,
+                billing: BillingMode::PayAsYouGo,
+                balance: None,
+                windows: vec![],
+                fidelity: Fidelity::Partial,
+                status: HealthStatus::Degraded,
+                fetched_at: Utc::now().timestamp(),
+                last_error: Some(
+                    "SiliconFlow 中国站 /user/info 已于 2026-08-14 停止服务，官方尚未提供账户余额替代接口"
+                        .into(),
+                ),
+            });
+        }
         let (url, currency) = endpoint(region);
         let response = super::http_client()
             .get(url)
@@ -252,5 +248,39 @@ mod tests {
     fn supports_cn_and_global_endpoints() {
         assert_eq!(endpoint("cn").1, "CNY");
         assert_eq!(endpoint("global").1, "USD");
+    }
+
+    #[tokio::test]
+    async fn existing_cn_account_becomes_explicit_degraded_snapshot_without_balance() {
+        let provider = SiliconFlowProvider::new();
+        let snapshot = provider
+            .fetch(&Credential {
+                data: serde_json::json!({"api_key":"redacted","region":"cn"}),
+            })
+            .await
+            .unwrap();
+        assert!(snapshot.balance.is_none());
+        assert_eq!(snapshot.status, HealthStatus::Degraded);
+        assert_eq!(snapshot.fidelity, Fidelity::Partial);
+        assert!(snapshot
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("2026-08-14"));
+    }
+
+    #[test]
+    fn new_accounts_only_offer_the_still_documented_global_site() {
+        let provider = SiliconFlowProvider::new();
+        let AuthSpec::ApiKey { fields, .. } = provider.auth_spec() else {
+            panic!("SiliconFlow 应继续使用 API Key 认证");
+        };
+        let region = fields.iter().find(|field| field.key == "region").unwrap();
+        assert_eq!(
+            region.options.as_deref(),
+            Some(&[("global", "国际站（美元）")][..])
+        );
+        assert!(!provider.supports_local_import());
+        assert!(provider.enabled());
     }
 }

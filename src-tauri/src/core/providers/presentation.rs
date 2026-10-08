@@ -191,6 +191,8 @@ pub enum CurrencyWindowRole {
 pub enum PrimaryWindowSelection {
     HighestPeriod,
     HighestNonCurrency,
+    /// 选择最长的标准周期，忽略用于展示独立额度桶的 Custom 窗口。
+    HighestNonCustom,
     MostUsed,
 }
 
@@ -272,6 +274,10 @@ fn primary_window(
         .filter(|window| {
             !matches!(selection, PrimaryWindowSelection::HighestNonCurrency)
                 || !is_currency(&window.unit)
+        })
+        .filter(|window| {
+            !matches!(selection, PrimaryWindowSelection::HighestNonCustom)
+                || !matches!(window.period, WindowPeriod::Custom(_))
         });
     match selection {
         PrimaryWindowSelection::MostUsed => candidates.max_by(|a, b| {
@@ -555,6 +561,41 @@ mod tests {
             }
             _ => panic!("原始计数应保留在额度明细"),
         }
+    }
+
+    #[test]
+    fn highest_non_custom_keeps_additional_buckets_out_of_primary() {
+        let mut source = snapshot("codex", BillingMode::Subscription);
+        source.windows = vec![
+            QuotaWindow {
+                period: WindowPeriod::Week,
+                label: "本周".into(),
+                used: Some(40.0),
+                used_raw: None,
+                limit: Some(100.0),
+                remaining: Some(60.0),
+                unit: QuotaUnit::Percent,
+                reset_at: None,
+            },
+            QuotaWindow {
+                period: WindowPeriod::Custom(30 * 60),
+                label: "codex_other · 30 分钟".into(),
+                used: Some(80.0),
+                used_raw: None,
+                limit: Some(100.0),
+                remaining: Some(20.0),
+                unit: QuotaUnit::Percent,
+                reset_at: None,
+            },
+        ];
+        let mut config = CardConfig::for_billing(source.billing);
+        config.primary_window = PrimaryWindowSelection::HighestNonCustom;
+
+        let card = present(&source, Brand::OpenAI, config, Some(5));
+        assert_eq!(card.primary.label, "本周余量");
+        assert_eq!(card.primary.value, Some(60.0));
+        assert_eq!(card.primary.health_used_percent, Some(40.0));
+        assert_eq!(card.items.len(), 2, "独立额度桶仍应完整保留在明细");
     }
 
     #[test]

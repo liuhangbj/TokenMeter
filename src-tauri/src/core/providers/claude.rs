@@ -547,12 +547,12 @@ impl Provider for ClaudeProvider {
         let name = plan_name.to_lowercase();
         if name.contains("free") {
             Some(0)
-        } else if name.contains("pro") || name.contains("team standard") {
-            Some(2)
-        } else if name.contains("5x") || name.contains("team premium") {
-            Some(4)
         } else if name.contains("20x") {
             Some(5)
+        } else if name.contains("5x") || name.contains("team premium") {
+            Some(4)
+        } else if name.contains("pro") || name.contains("team standard") {
+            Some(2)
         } else {
             None
         }
@@ -782,5 +782,13 @@ mod tests {
         });
         assert_eq!(profile_label(&profile).as_deref(), Some("Ada"));
         assert_eq!(profile_plan_name(&profile).as_deref(), Some("Max 20X"));
+
+        let provider = ClaudeProvider::new();
+        assert_eq!(provider.plan_tier("Pro"), Some(2));
+        assert_eq!(provider.plan_tier("Team Standard"), Some(2));
+        assert_eq!(provider.plan_tier("Max 5X"), Some(4));
+        assert_eq!(provider.plan_tier("Team Premium"), Some(4));
+        assert_eq!(provider.plan_tier("Max 20X"), Some(5));
+        assert_eq!(provider.plan_tier("Enterprise Contract"), None);
     }
 }

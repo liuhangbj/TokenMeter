@@ -54,8 +54,14 @@ pub struct AddableVendor {
 /// 前端只消费 AccountCardModel，不再判断具体供应商。
 #[tauri::command]
 pub fn get_account_cards(cache: State<Snapshots>) -> Vec<AccountCardModel> {
-    let registry = providers::registry();
     let snapshots = cache.read().unwrap().values().cloned().collect::<Vec<_>>();
+    account_cards_from_snapshots(&snapshots)
+}
+
+fn account_cards_from_snapshots(
+    snapshots: &[crate::core::providers::ProviderSnapshot],
+) -> Vec<AccountCardModel> {
+    let registry = providers::registry();
     snapshots
         .iter()
         .filter_map(|snapshot| {
@@ -692,7 +698,7 @@ mod tests {
     #[test]
     fn addable_providers_are_nonempty_and_serializable() {
         let list = list_addable_providers();
-        assert_eq!(list.len(), 16, "应返回 16 个可添加 provider");
+        assert_eq!(list.len(), 15, "应返回 15 个可添加 provider");
         assert_eq!(list[0].vendor.id, "openai");
         assert_eq!(list[0].account_type, AddAccountType::Plan);
         assert_eq!(list[0].product_name, "Codex 套餐");
@@ -710,7 +716,7 @@ mod tests {
         assert_eq!(vendor_counts.get("deepseek"), Some(&1));
         assert_eq!(vendor_counts.get("glm"), Some(&2));
         assert_eq!(vendor_counts.get("minimax"), Some(&2));
-        assert_eq!(vendor_counts.get("tencent"), Some(&1));
+        assert_eq!(vendor_counts.get("tencent"), None);
         assert_eq!(vendor_counts.get("google"), Some(&1));
         assert_eq!(vendor_counts.get("volcengine"), Some(&1));
         assert_eq!(vendor_counts.get("siliconflow"), Some(&1));
@@ -726,12 +732,9 @@ mod tests {
                 "{vendor_id} 应按 Plan → API 顺序显示双产品入口"
             );
         }
-        let tokenhub = list
+        assert!(list
             .iter()
-            .find(|provider| provider.id == "tencent_tokenhub")
-            .unwrap();
-        assert_eq!(tokenhub.account_type, AddAccountType::Plan);
-        assert!(matches!(tokenhub.auth_spec, AuthSpec::CloudSecret { .. }));
+            .all(|provider| provider.id != "tencent_tokenhub"));
 
         let json = serde_json::to_string(&list).expect("AddableProvider 序列化失败");
         assert!(json.contains("\"kind\":\"oauth\""));
@@ -763,5 +766,34 @@ mod tests {
             .expect("refresh should recover expired local credential");
         assert_eq!(imported.data["access_token"], "fresh");
         assert_eq!(provider.fetches.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn latest_snapshot_plan_replaces_previous_card_tier() {
+        fn codex_snapshot(plan_name: &str, fetched_at: i64) -> ProviderSnapshot {
+            ProviderSnapshot {
+                account_id: "codex#1".into(),
+                account_label: None,
+                provider_id: "codex".into(),
+                display_name: "OpenAI Codex".into(),
+                plan_name: Some(plan_name.into()),
+                billing: BillingMode::Subscription,
+                balance: None,
+                windows: vec![],
+                fidelity: Fidelity::Partial,
+                status: HealthStatus::Degraded,
+                fetched_at,
+                last_error: Some("fixture without quota windows".into()),
+            }
+        }
+
+        let first = account_cards_from_snapshots(&[codex_snapshot("Pro 100", 1)]);
+        assert_eq!(first[0].plan.as_ref().unwrap().name, "Pro 100");
+        assert_eq!(first[0].plan.as_ref().unwrap().tier, Some(4));
+
+        let refreshed = account_cards_from_snapshots(&[codex_snapshot("Pro 200", 2)]);
+        assert_eq!(refreshed[0].plan.as_ref().unwrap().name, "Pro 200");
+        assert_eq!(refreshed[0].plan.as_ref().unwrap().tier, Some(5));
+        assert_eq!(refreshed[0].fetched_at, 2);
     }
 }

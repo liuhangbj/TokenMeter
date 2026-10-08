@@ -4,6 +4,11 @@
 > 所有端点均已核实来源，标注 ⚠️ 的为非公开接口，随时可能失效。
 
 > 2026-08-12 增补：Gemini Code Assist、火山引擎费用中心、SiliconFlow。
+>
+> 2026-10-02 集中修复：腾讯 TokenHub 企业版公开 schema 没有可与
+> `CycleQuota` 安全配对的套餐级本期已用/剩余额度；新增入口暂停，既有账户只
+> 返回明确降级状态且不发送凭证。SiliconFlow 中国站 `/user/info` 已停服，国际站
+> 文档仍保留该接口，因此新增仅开放国际站，既有中国站账户保留为降级态。
 
 四个平台实际拆分为 **8 个独立供应商条目**，因为同一品牌下的订阅制与按量制走完全不同的凭证体系，数据结构也不通用。
 
@@ -19,11 +24,11 @@
 | 4 | Moonshot API | Moonshot | 按量 | API Key | ✅ 官方 |
 | 5 | DeepSeek | DeepSeek | 按量 | API Key + ⚠️Cookie | 混合 |
 | 6 | 腾讯 Coding Plan | Tencent | 订阅（请求次数） | ⚠️ 待定 | ⚠️ 逆向 |
-| 7 | 腾讯 Token Plan | Tencent | 订阅（Token 数） | SecretId/Key | ✅ 官方 |
-| 8 | 腾讯 TokenHub 按量 | Tencent | 按量 | SecretId/Key | ✅ 官方 |
+| 7 | 腾讯 Token Plan 个人版 | Tencent | 订阅（Token 数） | `sk-tp-*` | 无官方查询 API，入口隐藏 |
+| 8 | 腾讯 TokenHub Token Plan 企业版 | Tencent | 订阅（积分或 Token） | SecretId/Key + Region | ⏸ 入口隐藏；既有账户降级保留 |
 | 9 | Gemini Code Assist | Google | 订阅 | Google OAuth / Gemini CLI | Google 官方 CLI 使用的 Code Assist 接口 |
 | 10 | 火山引擎费用中心 | Volcengine | 按量 | Access Key / Secret Key | ✅ 官方 |
-| 11 | SiliconFlow | SiliconFlow | 按量 | API Key | ✅ 官方 |
+| 11 | SiliconFlow 国际站 | SiliconFlow | 按量 | API Key | ✅ 官方旧接口，待真实响应；中国站余额接口已停服 |
 
 ---
 
@@ -78,14 +83,29 @@ Accept: application/json
     "primary_window":   { "used_percent": 6,  "reset_at": 1738300000, "limit_window_seconds": 18000 },
     "secondary_window": { "used_percent": 24, "reset_at": 1738900000, "limit_window_seconds": 604800 }
   },
-  "code_review_rate_limit": {
-    "primary_window": { "used_percent": 0, "reset_at": 1738900000, "limit_window_seconds": 604800 }
-  },
+  "additional_rate_limits": [{
+    "limit_name": "codex_other",
+    "metered_feature": "codex_other",
+    "rate_limit": {
+      "primary_window": { "used_percent": 0, "reset_at": 1738900000, "limit_window_seconds": 1800 }
+    }
+  }],
   "credits": { "has_credits": true, "unlimited": false, "balance": 5.39 }
 }
 ```
 
-映射：`primary_window` → 5 小时窗口，`secondary_window` → 7 天窗口。两个窗口同时生效，任一打满即限流。
+映射：普通 `primary_window` → 5 小时窗口，`secondary_window` → 7 天窗口。
+`additional_rate_limits` 是独立额度桶，保留名称、周期、用量和重置时间作为明细，
+不得替换普通主额度或改变主健康状态；未知独立桶不按套餐价格推断语义。
+
+当前官方 Codex schema 的个人 Pro 机器值为 `prolite` / `pro` / `promax`，
+分别显示为 Pro / Pro (More) / Pro (Max)；结合当前销售名称统一展示为
+Pro 100 / Pro 200 / Pro 500。旧 `pro_5x` / `pro_20x` 仅作历史响应兼容，
+未知值不按价格猜档。
+
+机器值与独立额度字段以 OpenAI Codex 仓库固定提交
+`e95abcdf4939f37f11f00f984efdbbf8b088346e` 的 protocol/backend-client 定义为准；
+仓库合成 fixture 只验证解析与卡片契约，不冒充真实 Pro 500 账户响应。
 
 **刷新** — `last_refresh` 超过 8 天或遇 401/403 时：
 
@@ -305,7 +325,7 @@ Anthropic 协议  https://api.lkeap.cloud.tencent.com/plan/anthropic
 |------|---------------------|--------|
 | 凭证 | **专属 API Key**（`sk-tp-...`，套餐页生成） | CAM SecretId / SecretKey |
 | Base URL | `tokenhub[-intl].tencentcloudmaas.com` | `tokenhub.tencentcloudapi.com` |
-| 查用量 | ❌ **无 API**，仅控制台网页可见 | ✅ `DescribeTokenPlan(List)`（TC3 签名） |
+| 查用量 | ❌ **无 API**，仅控制台网页可见 | 列表/详情接口存在，但套餐级本期余量未获证；当前入口暂停 |
 | 推理 | ✅ OpenAI 兼容 `/v1/chat/completions` | ✅ |
 
 **个人版实测（你的 `sk-tp-` Key，2026-08-02）：**
@@ -314,63 +334,74 @@ Anthropic 协议  https://api.lkeap.cloud.tencent.com/plan/anthropic
 - 你的 Key 打 `/v1/models` 返回 401（signature 校验失败）——该 Key 专用于推理调用，可能绑定特定域名/签名，**非通用 REST Key**。
 - **结论：个人版 Token Plan 的"剩余额度"无官方 API**，只能靠 ① 本地记账（App 记录每次调用 token 数，月上限−累计反推）或 ② 逆向控制台内部接口（M5，灰色，需腾讯云登录 cookie）。**M2 官方路径对个人版走不通。**
 
-**企业版实测（CAM SecretId/Key，Region=`ap-guangzhou`，2026-08-02）：**
+**企业版历史实测（CAM SecretId/Key，Region=`ap-guangzhou`，2026-08-02）：**
+
+以下历史观察只证明签名和空列表请求可完成，未验证非空套餐响应，更不证明
+套餐级本期余量可查询。当前实现已暂停新增和网络查询，见第 8 节；不得以本段
+恢复已暂停的额度路径或主值健康告警。
 - TC3 签名 ✅、版本号 `2026-03-22` ✅、`X-TC-Region` 必填。
 - `DescribeTokenPlanList` 打通，但**面向企业版**（`tp-ent-` 前缀 TeamId）。实测你的账号返回 `{"TokenPlanSet": [], "TotalCount": 0}`——因你是个人版，企业版列表自然为空。⚠️ Provider 逻辑须区分"接口报错" vs "无企业版套餐"（后者不告警）。
 - CAM 权限：需 `tokenhub:DescribeTokenPlan*` 读权限（预设 `QcloudTokenHubReadOnlyAccess` 或自定义策略）。
 
-**端点（企业版）**
+**端点（企业版历史研究记录，当前 Provider 不调用）**
 
 ```
 POST https://tokenhub.tencentcloudapi.com
-X-TC-Action: DescribeTokenPlanList   # 先拿列表（含主额度包详情）
+X-TC-Action: DescribeTokenPlanList   # 历史列表调用，非已验证的本期余量查询
 X-TC-Version: 2026-03-22
 X-TC-Region: ap-guangzhou            # 必填
 ```
 
-返回：`TokenPlanSet[]`（每个套餐含名称/状态/主额度包余量）、`TotalCount`。再按 `TeamId` 调 `DescribeTokenPlan` 取详情（`Status`、`StopReason`：NORMAL / ISOLATED / FROZEN / EXHAUSTED / DESTROYED）。
+历史实测只得到空 `TokenPlanSet[]` 和 `TotalCount = 0`，没有验证套餐主余量字段。
+`DescribeTokenPlan` 的列表/详情结构及 `Status`、`StopReason` 只能按官方契约分别
+理解，不能据其存在就推导本期已用或剩余量；`PackageInfo.TotalUsed` 与
+`CycleQuota` 也不能直接相减。
 
-**注意** — 额度不结转，套餐到期 API Key 立即失效。`StopReason = EXHAUSTED` 应在菜单栏红色告警。
+`StopReason = EXHAUSTED` 是套餐状态线索，不是本产品已验证的主余量或健康值。
+当前旧账户显示明确的 Partial/Degraded 原因，不据历史状态推断菜单栏红色告警，
+也不把未知余额/余量显示成 0 或 100%。
 
 ---
 
-## 8. 腾讯 TokenHub 按量
+## 8. 腾讯 TokenHub Token Plan 企业版（暂停新增，既有账户兼容）
 
-**认证** — 同上 SecretId / SecretKey
+**认证** — 历史配置使用 CAM SecretId / SecretKey + Region；新增入口现已隐藏，
+既有凭证不删除、不迁移、不向未经验证的新 Host 发送。
 
 **端点**
 
 ```
-POST https://tokenhub.tencentcloudapi.com
-X-TC-Action: DescribeUsageRankList
-X-TC-Version: 2026-03-22
+中国站：tokenhub.tencentcloudapi.com
+国际站：tokenhub.intl.tencentcloudapi.com
+Action：DescribeTokenPlanList / DescribeTokenPlan
+Version：2026-03-22
 ```
 
-参数 `Dimension` 取 `apikey` / `endpoint` / `model`，`MetricType=tokens`。
+官方 SDK/schema 证明 `PackageInfo.CycleQuota` 是本期上限，而
+`PackageInfo.TotalUsed` 是跨周期累计，不能相减；套餐详情响应没有
+`Balance.TotalUsed`。API Key 的 `SubPackageBalance.TotalUsed` 只描述子额度包，
+`TokenSummary.BillingItems` 只描述本期原始 Token 明细，也不能换算专业套餐积分。
+因此当前没有公开证据可生成套餐主余量。
 
-返回指标：`TotalToken` / `InputTotalToken` / `OutputTotalToken` / `CacheTotalToken`，含 `TotalStats`（整段聚合）与 `TopList`（逐时间点曲线）。
-
-**账户余额**
-
-```
-POST https://billing.tencentcloudapi.com
-X-TC-Action: DescribeAccountBalance
-```
-
-**评价** — 腾讯是四家里唯一官方同时提供「余额 + token 用量 + 时间曲线」的，数据完整度最高。
+国际文档虽有同名 Action/Version，但使用独立签名 Host
+`tokenhub.intl.tencentcloudapi.com`。本阶段未授权新增域名/签名策略，也没有真实
+国际账号验证，不能把 `ap-singapore` 地域值发往中国站 Host。现有中国站和国际站
+配置都生成无余额、无额度窗口的 Partial/Degraded 新快照并显示具体原因；国际配置
+明确说明未发送 SecretId/SecretKey。拿到官方套餐级本期余量字段和脱敏样本前不恢复
+新增入口。
 
 ---
 
 ## 数据可得性总结
 
-| 指标 | Codex | OpenAI API | Kimi Code | Moonshot | DeepSeek | 腾讯 CP | 腾讯 TP | 腾讯按量 |
+| 指标 | Codex | OpenAI API | Kimi Code | Moonshot | DeepSeek | 腾讯 CP | 腾讯个人 TP | 腾讯企业 TP |
 |------|:-----:|:----------:|:---------:|:--------:|:--------:|:-------:|:-------:|:--------:|
 | 套餐名称 | ✅ | — | ✅ | — | — | ⚠️ | ✅ | — |
-| 账户余额 | ✅ credits | — | — | ✅ | ✅ | — | ✅ 额度包 | ✅ |
+| 账户余额 | ✅ credits | — | — | ✅ | ✅ | — | ✖ | ⚠️ 暂停，字段缺证 |
 | 小时窗口 | ✅ 5h | — | ✅ 5h | — | — | ⚠️ 5h | — | — |
-| 周窗口 | ✅ 7d | 桶聚合 | — | — | — | ⚠️ | — | 桶聚合 |
-| 月窗口 | — | 桶聚合 | — | — | — | ⚠️ | ✅ | 桶聚合 |
-| Token 数 | — | ✅ | — | ✖ | ⚠️ | — | ✅ | ✅ |
-| 金额 | ✅ | ✅ | — | 差分 | 差分 | — | — | ✅ |
+| 周窗口 | ✅ 7d | 桶聚合 | — | — | — | ⚠️ | — | — |
+| 月窗口 | — | 桶聚合 | — | — | — | ⚠️ | ✖ | ⚠️ 不展示推测值 |
+| Token 数 | — | ✅ | — | ✖ | ⚠️ | — | ✖ | ⚠️ 仅有明细，非主余量 |
+| 金额 | ✅ | ✅ | — | 差分 | 差分 | — | — | — |
 
 ✅ 官方直接可得 ｜ ⚠️ 需逆向或待验证 ｜ ✖ 完全不可得 ｜ 差分 = 余额快照推算

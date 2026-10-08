@@ -1,18 +1,20 @@
-//! 腾讯 TokenHub 按量（官方路径，数据完整度最高）
+//! 腾讯 TokenHub Token Plan 企业版（既有账户兼容，暂停新增）。
 //!
-//! 认证：SecretId / SecretKey（同 Token Plan）
-//! 端点：
-//!   - `DescribeUsageRankList`（Token 数，按 apikey/ endpoint / model 维度）
-//!   - `billing.DescribeAccountBalance`（账户余额）
+//! 腾讯公开 `DescribeTokenPlan` 契约只提供跨周期累计 `PackageInfo.TotalUsed`
+//! 和本期上限 `PackageInfo.CycleQuota`，没有可与本期上限安全相减的套餐级本期
+//! 已用/剩余额度。API Key 的 `Balance.TotalUsed` 属于子额度包，不能冒充套餐主
+//! 额度；`TokenSummary` 也只给原始 Token 明细，不能换算专业套餐积分。
 //!
-//! ⚠️ API 版本 2026-03-22 为前瞻版本，真实字段需接入后校准。
+//! 国际站还使用独立签名 Host。当前阶段既未获授权新增该 Host，也没有真实账号
+//! 验证。因此本 Provider 暂停新增；既有账户与凭证继续保留，但刷新只返回明确的
+//! Degraded 快照，不发送凭证、不显示推测的 0/100%。
 
 use super::*;
-use crate::core::providers::tencent;
 use crate::core::providers::Brand;
 use async_trait::async_trait;
 use chrono::Utc;
-use serde_json::{json, Value};
+
+const DOMESTIC_REGION: &str = "ap-guangzhou";
 
 pub struct TencentTokenHubProvider;
 
@@ -22,34 +24,90 @@ impl TencentTokenHubProvider {
     }
 }
 
+fn paused_reason(cred: &Credential) -> String {
+    let region = cred
+        .data
+        .get("region")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DOMESTIC_REGION);
+
+    if region != DOMESTIC_REGION {
+        format!(
+            "该账户配置为 {region}；腾讯 TokenHub 国际站使用独立签名 Host，本版本未获授权接入，未发送 SecretId/SecretKey。账户与凭证已保留，可继续管理或删除。"
+        )
+    } else {
+        "腾讯 TokenHub 官方公开契约未提供可与本期额度对应的套餐级本期已用/剩余额度；本版本已暂停查询，未显示推测的 0/100%。账户与凭证已保留，可继续管理或删除。".to_string()
+    }
+}
+
+fn paused_snapshot(cred: &Credential) -> ProviderSnapshot {
+    let account_label = cred
+        .data
+        .get("team_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    ProviderSnapshot {
+        account_id: String::new(),
+        account_label,
+        provider_id: "tencent_tokenhub".to_string(),
+        display_name: "腾讯 TokenHub".to_string(),
+        plan_name: None,
+        billing: BillingMode::Subscription,
+        balance: None,
+        windows: vec![],
+        fidelity: Fidelity::Partial,
+        status: HealthStatus::Degraded,
+        fetched_at: Utc::now().timestamp(),
+        last_error: Some(paused_reason(cred)),
+    }
+}
+
 #[async_trait]
 impl Provider for TencentTokenHubProvider {
     fn id(&self) -> &'static str {
         "tencent_tokenhub"
     }
+
     fn display_name(&self) -> &'static str {
-        "腾讯 TokenHub 按量"
+        "腾讯 TokenHub"
     }
+
     fn brand(&self) -> Brand {
         Brand::Tencent
     }
+
     fn billing_mode(&self) -> BillingMode {
-        BillingMode::PayAsYouGo
+        BillingMode::Subscription
     }
-    fn add_account_type(&self) -> AddAccountType {
-        // TokenHub 套餐按月购买 Token 总量；使用 SecretId/Key 只是认证方式，
-        // 不应因此在添加界面归类为 API 按量账户。
-        AddAccountType::Plan
-    }
+
     fn add_product_name(&self) -> &'static str {
-        "TokenHub Token 套餐"
+        "Token Plan 企业版"
     }
+
     fn add_description(&self) -> &'static str {
-        "月度 Token 总量"
+        "当前周期额度接口待官方补齐"
     }
+
     fn detail_url(&self) -> Option<&'static str> {
-        Some("https://console.cloud.tencent.com/tokenhub")
+        Some("https://console.cloud.tencent.com/tokenhub/token-plan")
     }
+
+    fn card_config(&self) -> presentation::CardConfig {
+        let mut config = presentation::CardConfig::for_billing(self.billing_mode());
+        config.detail_url = self.detail_url();
+        config.primary_window = presentation::PrimaryWindowSelection::HighestNonCurrency;
+        config
+    }
+
+    fn enabled(&self) -> bool {
+        false
+    }
+
     fn auth_spec(&self) -> AuthSpec {
         AuthSpec::CloudSecret {
             fields: vec![
@@ -69,142 +127,84 @@ impl Provider for TencentTokenHubProvider {
                     required: true,
                     options: None,
                 },
+                AuthField {
+                    key: "region",
+                    label: "套餐地域",
+                    placeholder: "",
+                    secret: false,
+                    required: true,
+                    options: Some(vec![(DOMESTIC_REGION, "广州（中国站）")]),
+                },
+                AuthField {
+                    key: "team_id",
+                    label: "TeamId（多套餐时必填）",
+                    placeholder: "tp-ent-...",
+                    secret: false,
+                    required: false,
+                    options: None,
+                },
             ],
         }
     }
+
     async fn fetch(&self, cred: &Credential) -> anyhow::Result<ProviderSnapshot> {
-        let sid = cred
-            .data
-            .get("secret_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("缺少 secret_id"))?;
-        let skey = cred
-            .data
-            .get("secret_key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("缺少 secret_key"))?;
+        Ok(paused_snapshot(cred))
+    }
+}
 
-        let client = super::http_client();
-        let now = Utc::now();
-        let start_time = (now - chrono::Duration::days(30)).to_rfc3339();
-        let end_time = now.to_rfc3339();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        // Token 用量：按 API Key 维度拿整段汇总，同时保留输入/输出/缓存分项。
-        let usage = tencent::tencent_post(
-            client,
-            "tokenhub",
-            "tokenhub.tencentcloudapi.com",
-            "DescribeUsageRankList",
-            "2026-03-22",
-            sid,
-            skey,
-            None,
-            &json!({
-                "Dimension": "apikey",
-                "MetricType": "tokens",
-                "StartTime": start_time,
-                "EndTime": end_time,
-                "Period": 86400,
-                "ShowAll": true,
-            }),
-        )
-        .await?;
-        let usage_resp = usage.get("Response").cloned().unwrap_or(Value::Null);
-        let usage_stats = usage_resp.get("TotalStats").unwrap_or(&usage_resp);
-        let total_token = usage_stats.get("TotalToken").and_then(tencent::value_num);
-        let mut fidelity = Fidelity::Exact;
-        let mut windows = vec![];
-        for (key, label) in [
-            ("TotalToken", "近 30 天 Token"),
-            ("InputTotalToken", "输入 Token"),
-            ("OutputTotalToken", "输出 Token"),
-            ("CacheTotalToken", "缓存命中 Token"),
-        ] {
-            if let Some(value) = usage_stats.get(key).and_then(tencent::value_num) {
-                windows.push(QuotaWindow {
-                    period: WindowPeriod::Month,
-                    label: label.into(),
-                    used: None,
-                    used_raw: Some(value),
-                    limit: None,
-                    remaining: None,
-                    unit: QuotaUnit::Tokens,
-                    reset_at: None,
-                });
-            }
-        }
-        if total_token.is_none() {
-            log::warn!("TokenHub DescribeUsageRankList 未返回 TotalStats.TotalToken，本次用量缺失");
-            fidelity = Fidelity::Partial;
-        }
-
-        // 账户余额
-        let bal = tencent::tencent_post(
-            client,
-            "billing",
-            "billing.tencentcloudapi.com",
-            "DescribeAccountBalance",
-            "2018-07-09",
-            sid,
-            skey,
-            None,
-            &json!({}),
-        )
-        .await?;
-        let bal_resp = bal.get("Response").cloned().unwrap_or(Value::Null);
-        let account_label = bal_resp
-            .get("Uin")
-            .and_then(tencent::value_num)
-            .map(|uin| format!("UIN {:.0}", uin));
-        // 腾讯云余额接口单位为分，统一换算为元再进入 UI。
-        let balance_total_cents = bal_resp
-            .get("Balance")
-            .and_then(tencent::value_num)
-            .or_else(|| bal_resp.get("RealBalance").and_then(tencent::value_num));
-        let cash_balance = bal_resp
-            .get("CashAccountBalance")
-            .and_then(tencent::value_num)
-            .map(|value| value / 100.0);
-        let present_balance = bal_resp
-            .get("PresentAccountBalance")
-            .and_then(tencent::value_num)
-            .map(|value| value / 100.0);
-
-        let (balance, status) = match balance_total_cents.map(|value| value / 100.0) {
-            Some(value) => (
-                Some(Balance {
-                    total: value,
-                    granted: present_balance,
-                    topped_up: cash_balance,
-                    currency: "CNY".into(),
-                    available: value > 0.0,
-                }),
-                if value > 0.0 {
-                    HealthStatus::Ok
-                } else {
-                    HealthStatus::Exhausted
-                },
-            ),
-            None => {
-                // 接口成功但字段缺失：明确标记降级，而不是把 0 当"余额耗尽"误报。
-                log::warn!("TokenHub DescribeAccountBalance 未返回 Balance/RealBalance，余额未知");
-                (None, HealthStatus::Degraded)
-            }
+    #[test]
+    fn provider_is_hidden_until_package_cycle_balance_is_proven() {
+        let provider = TencentTokenHubProvider::new();
+        assert!(!provider.enabled());
+        let AuthSpec::CloudSecret { fields } = provider.auth_spec() else {
+            panic!("TokenHub 应保留云密钥兼容契约");
         };
+        let regions = fields
+            .iter()
+            .find(|field| field.key == "region")
+            .and_then(|field| field.options.as_deref());
+        assert_eq!(regions, Some(&[(DOMESTIC_REGION, "广州（中国站）")][..]));
+    }
 
-        Ok(ProviderSnapshot {
-            account_id: String::new(),
-            account_label,
-            provider_id: self.id().to_string(),
-            display_name: self.display_name().to_string(),
-            plan_name: None,
-            billing: BillingMode::PayAsYouGo,
-            balance,
-            windows,
-            fidelity,
-            status,
-            fetched_at: Utc::now().timestamp(),
-            last_error: None,
-        })
+    #[test]
+    fn domestic_legacy_account_degrades_without_inventing_quota() {
+        let credential = Credential {
+            data: serde_json::json!({
+                "secret_id": "not-read",
+                "secret_key": "not-read",
+                "region": DOMESTIC_REGION,
+                "team_id": "tp-ent-redacted"
+            }),
+        };
+        let snapshot = paused_snapshot(&credential);
+        assert_eq!(snapshot.account_label.as_deref(), Some("tp-ent-redacted"));
+        assert_eq!(snapshot.status, HealthStatus::Degraded);
+        assert_eq!(snapshot.fidelity, Fidelity::Partial);
+        assert!(snapshot.balance.is_none());
+        assert!(snapshot.windows.is_empty());
+        let reason = snapshot.last_error.expect("暂停原因必须对用户可见");
+        assert!(reason.contains("套餐级本期已用/剩余额度"));
+        assert!(reason.contains("未显示推测的 0/100%"));
+    }
+
+    #[test]
+    fn international_legacy_account_never_falls_back_to_domestic_host() {
+        let credential = Credential {
+            data: serde_json::json!({
+                "secret_id": "not-sent",
+                "secret_key": "not-sent",
+                "region": "ap-singapore"
+            }),
+        };
+        let snapshot = paused_snapshot(&credential);
+        assert_eq!(snapshot.status, HealthStatus::Degraded);
+        assert!(snapshot.windows.is_empty());
+        let reason = snapshot.last_error.expect("国际站暂停原因必须对用户可见");
+        assert!(reason.contains("独立签名 Host"));
+        assert!(reason.contains("未发送 SecretId/SecretKey"));
     }
 }

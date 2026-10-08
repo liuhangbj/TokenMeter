@@ -1,0 +1,39 @@
+{
+  "plan_type": "promax",
+  "rate_limit": {
+    "primary_window": {
+      "used_percent": 20,
+      "limit_window_seconds": 18000,
+      "reset_at": 1790000000
+    },
+    "secondary_window": {
+      "used_percent": 40,
+      "limit_window_seconds": 604800,
+      "reset_at": 1790500000
+    }
+  },
+  "credits": {
+    "has_credits": true,
+    "unlimited": false,
+    "balance": "25.5"
+  },
+  "additional_rate_limits": [
+    {
+      "limit_name": "codex_other",
+      "metered_feature": "codex_other",
+      "rate_limit": {
+        "primary_window": {
+          "used_percent": 70,
+          "limit_window_seconds": 1800,
+          "reset_at": 1790001000
+        },
+        "secondary_window": {
+          "used_percent": 80,
+          "limit_window_seconds": 86400,
+          "reset_at": 1790002000
+        }
+      }
+    }
+  ],
+  "future_field": { "ignored": true }
+}

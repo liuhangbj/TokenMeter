@@ -58,7 +58,8 @@
 
   /* P3 平台 */
   .plat-wrap { display: flex; gap: 48px; margin-top: 56px; flex: 1; align-items: flex-start; }
-  .plat-wrap .panel { height: 940px; }
+  .wizard-crop { width: 445px; height: 690px; overflow: hidden; border-radius: 28px; box-shadow: 0 16px 36px rgba(38,34,27,.18); flex: none; }
+  .wizard-crop .panel { height: 940px; border-radius: 0; box-shadow: none; }
   .plat-list { flex: 1; display: flex; flex-wrap: wrap; gap: 14px; align-content: flex-start; padding-top: 6px; }
   .chip-p { font-size: 23px; font-weight: 600; padding: 13px 22px; border-radius: 14px; background: #fff; border: 1.5px solid rgba(38,34,27,.10); color: #3A352C; box-shadow: 0 3px 10px rgba(38,34,27,.06); }
   .chip-p.more { background: rgba(14,124,107,.10); border-color: rgba(14,124,107,.25); color: #0B5F52; }
@@ -101,7 +102,7 @@
   <div class="hero">
     <img class="shot panel" src="assets/popover-light.png">
     <img class="shot dark orb" src="assets/orb-big-cyber.png">
-    <div class="chip">16 个平台接口<br>持续接入中</div>
+    <div class="chip">15 个平台接口<br>持续接入中</div>
   </div>
   <div class="badge-row"><span class="badge">无窗口设计</span><span class="badge">桌面悬浮球</span><span class="badge">三套主题</span><span class="badge">完全免费</span></div>
   <div class="foot"><div class="dots"><i class="on"></i><i></i><i></i><i></i><i></i><i></i></div><span class="note">macOS · Windows 免费下载</span></div>
@@ -125,10 +126,10 @@
   <div class="head"><img class="logo" src="assets/icon.png"><span class="word">TokenMeter</span><span class="kicker">02 / 多平台接入</span></div>
   <div class="title">一个面板<br><span class="accent">盯紧所有 AI 账户</span></div>
   <div class="plat-wrap">
-    <img class="shot panel" src="assets/wizard-add.png">
+    <div class="wizard-crop"><img class="shot panel" src="assets/wizard-add.png"></div>
     <div>
       <div class="plat-list">
-        <span class="chip-p">OpenAI Codex</span><span class="chip-p">Claude</span><span class="chip-p">Kimi Code</span><span class="chip-p">DeepSeek</span><span class="chip-p">Gemini</span><span class="chip-p">GLM</span><span class="chip-p">MiniMax</span><span class="chip-p">OpenRouter</span><span class="chip-p">Moonshot</span><span class="chip-p">Anthropic API</span><span class="chip-p">OpenAI API</span><span class="chip-p">火山引擎</span><span class="chip-p">SiliconFlow</span><span class="chip-p">腾讯 TokenHub</span><span class="chip-p more">持续接入中 …</span>
+        <span class="chip-p">OpenAI Codex</span><span class="chip-p">Claude</span><span class="chip-p">Kimi Code</span><span class="chip-p">DeepSeek</span><span class="chip-p">Gemini</span><span class="chip-p">GLM</span><span class="chip-p">MiniMax</span><span class="chip-p">OpenRouter</span><span class="chip-p">Moonshot</span><span class="chip-p">Anthropic API</span><span class="chip-p">OpenAI API</span><span class="chip-p">火山引擎</span><span class="chip-p">SiliconFlow 国际站</span><span class="chip-p more">持续接入中 …</span>
       </div>
       <div class="plat-note">OAuth 授权 / 本机 CLI 凭证导入 / API Key，<br>三种方式都是点几下就接好。<br>订阅套餐、按量 API、Token 资源包，<br>统一成一种语言：<b>余量百分比 + 余额</b>。</div>
     </div>

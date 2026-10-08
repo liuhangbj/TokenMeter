@@ -66,7 +66,8 @@ function BalanceRow({ item }: { item: BalanceCardItem }) {
 }
 
 function planTierClass(tier: number | null): string {
-  return tier !== null && tier >= 0 && tier <= 5 ? `tier-${tier}` : "tier-neutral";
+  if (tier === 0) return "tier-free";
+  return tier !== null && tier >= 1 && tier <= 5 ? `tier-${tier}` : "tier-neutral";
 }
 
 function primaryValue(card: AccountCardModel): string {
@@ -124,6 +125,9 @@ export function ProviderCard({
       <div className="card-foot">
         {card.status === "NetworkError" && card.last_error && (
           <span className="foot-error" title={card.last_error}>刷新失败 · 显示上次数据</span>
+        )}
+        {card.status === "Degraded" && card.last_error && (
+          <span className="foot-error" title={card.last_error}>部分数据暂不可用</span>
         )}
         {card.status === "AuthExpired" && <span className="foot-error">凭证已过期，请重新授权</span>}
         <span className="spacer" />

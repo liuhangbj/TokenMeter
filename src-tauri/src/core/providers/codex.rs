@@ -7,7 +7,7 @@
 //!   - `plan_type` 套餐名（实测 "plus"）
 //!   - `rate_limit.primary_window` 主窗口（used_percent 整数 + limit_window_seconds + reset_at）
 //!   - `rate_limit.secondary_window` 次窗口 —— 可为 null（单窗口账号）
-//!   - `code_review_rate_limit` 可为 null
+//!   - `additional_rate_limits` 独立模型/功能额度桶（官方公开 schema；合成 fixture 回归）
 //!   - `credits.balance` 字符串（实测 "0"），`has_credits`/`unlimited` 布尔
 //!   - `spend_control` / `rate_limit_upsell`（升级 CTA）/ `rate_limit_reset_credits`
 //! - 窗口语义：limit_window_seconds=18000 → 5h；=604800 → 7d。used_percent 为整数百分比。
@@ -156,6 +156,8 @@ struct WhamResp {
     rate_limit: Option<RateLimit>,
     #[serde(default)]
     credits: Option<Credits>,
+    #[serde(default)]
+    additional_rate_limits: Option<Vec<AdditionalRateLimit>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -164,6 +166,16 @@ struct RateLimit {
     primary_window: Option<WindowInfo>,
     #[serde(default)]
     secondary_window: Option<WindowInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AdditionalRateLimit {
+    #[serde(default)]
+    limit_name: String,
+    #[serde(default)]
+    metered_feature: String,
+    #[serde(default)]
+    rate_limit: Option<RateLimit>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,8 +209,12 @@ enum NumStr {
 impl NumStr {
     fn as_f64(&self) -> Option<f64> {
         match self {
-            NumStr::N(n) if !n.is_nan() => Some(*n),
-            NumStr::S(s) => s.trim().parse::<f64>().ok(),
+            NumStr::N(n) if n.is_finite() => Some(*n),
+            NumStr::S(s) => s
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite()),
             _ => None,
         }
     }
@@ -207,11 +223,7 @@ impl NumStr {
 fn credit_balance(credits: Option<&Credits>) -> Option<Balance> {
     let credits = credits?;
     let unlimited = credits.unlimited.unwrap_or(false);
-    let balance = credits
-        .balance
-        .as_ref()
-        .and_then(NumStr::as_f64)
-        .unwrap_or(0.0);
+    let balance = credits.balance.as_ref().and_then(NumStr::as_f64)?;
 
     // wham/usage 即使在余额为 0 时也可能返回 has_credits=false；
     // 只要 credits 对象存在，就保留这一项供前端明确显示 $0，而不是整行消失。
@@ -274,22 +286,54 @@ fn account_label_from_credential(cred: &Credential) -> Option<String> {
         .or_else(|| account_id.map(str::to_string))
 }
 
-/// 由 limit_window_seconds 推断窗口周期与中文标签。
-fn window_meta(secs: i64) -> (WindowPeriod, &'static str) {
-    match secs {
-        s if s <= 5 * 3600 + 600 => (WindowPeriod::Hours5, "5 小时"),
-        s if s <= 7 * 86_400 + 3600 => (WindowPeriod::Week, "本周"),
-        s => (WindowPeriod::Custom(s), "自定义窗口"),
+fn near(value: i64, expected: i64, tolerance: i64) -> bool {
+    (value - expected).abs() <= tolerance
+}
+
+fn duration_label(secs: i64) -> String {
+    if near(secs, 5 * 3600, 10 * 60) {
+        "5 小时".to_string()
+    } else if near(secs, 7 * 86_400, 3600) {
+        "7 天".to_string()
+    } else if secs % 86_400 == 0 {
+        format!("{} 天", secs / 86_400)
+    } else if secs % 3600 == 0 {
+        format!("{} 小时", secs / 3600)
+    } else if secs % 60 == 0 {
+        format!("{} 分钟", secs / 60)
+    } else {
+        format!("{secs} 秒")
+    }
+}
+
+/// 由 limit_window_seconds 推断普通 Codex 主额度窗口的周期与中文标签。
+fn window_meta(secs: i64) -> (WindowPeriod, String) {
+    if near(secs, 5 * 3600, 10 * 60) {
+        (WindowPeriod::Hours5, "5 小时".to_string())
+    } else if near(secs, 86_400, 10 * 60) {
+        (WindowPeriod::Day, "当天".to_string())
+    } else if near(secs, 7 * 86_400, 3600) {
+        (WindowPeriod::Week, "本周".to_string())
+    } else if near(secs, 30 * 86_400, 6 * 3600) {
+        (WindowPeriod::Month, "本月".to_string())
+    } else {
+        (WindowPeriod::Custom(secs), duration_label(secs))
     }
 }
 
 fn to_window(w: &WindowInfo) -> Option<QuotaWindow> {
     let secs = w.limit_window_seconds?;
+    if secs <= 0 {
+        return None;
+    }
     let (period, label) = window_meta(secs);
-    let pct = w.used_percent.map(|p| p.clamp(0.0, 100.0));
+    let pct = w
+        .used_percent
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.0, 100.0));
     Some(QuotaWindow {
         period,
-        label: label.to_string(),
+        label,
         used: pct,
         used_raw: None,
         limit: Some(100.0),
@@ -297,6 +341,101 @@ fn to_window(w: &WindowInfo) -> Option<QuotaWindow> {
         unit: QuotaUnit::Percent,
         reset_at: w.reset_at,
     })
+}
+
+fn additional_limit_label(limit: &AdditionalRateLimit) -> Option<&str> {
+    let name = limit.limit_name.trim();
+    if !name.is_empty() {
+        return Some(name);
+    }
+    let feature = limit.metered_feature.trim();
+    (!feature.is_empty()).then_some(feature)
+}
+
+fn to_additional_window(limit_name: &str, w: &WindowInfo) -> Option<QuotaWindow> {
+    let secs = w.limit_window_seconds?;
+    if secs <= 0 {
+        return None;
+    }
+    let pct = w
+        .used_percent
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.0, 100.0));
+    Some(QuotaWindow {
+        // additional_rate_limits 是独立额度桶。保留真实秒数和重置时间，但不让
+        // 独立模型/功能额度替换普通 Codex 主余量。
+        period: WindowPeriod::Custom(secs),
+        label: format!("{limit_name} · {}", duration_label(secs)),
+        used: pct,
+        used_raw: None,
+        limit: Some(100.0),
+        remaining: pct.map(|value| (100.0 - value).max(0.0)),
+        unit: QuotaUnit::Percent,
+        reset_at: w.reset_at,
+    })
+}
+
+fn snapshot_from_wham(
+    body: WhamResp,
+    account_label: Option<String>,
+    fetched_at: i64,
+) -> ProviderSnapshot {
+    let plan_name = body.plan_type.as_deref().map(display_plan_name);
+    let mut windows = Vec::new();
+    if let Some(rate_limit) = &body.rate_limit {
+        windows.extend(rate_limit.primary_window.as_ref().and_then(to_window));
+        windows.extend(rate_limit.secondary_window.as_ref().and_then(to_window));
+    }
+    let ordinary_window_count = windows.len();
+
+    for additional in body.additional_rate_limits.as_deref().unwrap_or_default() {
+        let Some(limit_name) = additional_limit_label(additional) else {
+            continue;
+        };
+        let Some(rate_limit) = &additional.rate_limit else {
+            continue;
+        };
+        windows.extend(
+            rate_limit
+                .primary_window
+                .as_ref()
+                .and_then(|window| to_additional_window(limit_name, window)),
+        );
+        windows.extend(
+            rate_limit
+                .secondary_window
+                .as_ref()
+                .and_then(|window| to_additional_window(limit_name, window)),
+        );
+    }
+
+    let has_standard_main_window = windows[..ordinary_window_count]
+        .iter()
+        .any(|window| !matches!(window.period, WindowPeriod::Custom(_)) && window.used.is_some());
+    let (fidelity, status, last_error) = if has_standard_main_window {
+        (Fidelity::Exact, HealthStatus::Ok, None)
+    } else {
+        (
+            Fidelity::Partial,
+            HealthStatus::Degraded,
+            Some("Codex 未提供可识别的主额度窗口".to_string()),
+        )
+    };
+
+    ProviderSnapshot {
+        account_id: String::new(),
+        account_label,
+        provider_id: "codex".to_string(),
+        display_name: "OpenAI Codex".to_string(),
+        plan_name,
+        billing: BillingMode::Subscription,
+        balance: credit_balance(body.credits.as_ref()),
+        windows,
+        fidelity,
+        status,
+        fetched_at,
+        last_error,
+    }
 }
 
 #[async_trait]
@@ -328,20 +467,31 @@ impl Provider for CodexProvider {
         config.balance_role = presentation::BalanceRole::Supplemental {
             label: "Credit 余额",
         };
+        config.primary_window = presentation::PrimaryWindowSelection::HighestNonCustom;
         config
     }
     fn plan_tier(&self, plan_name: &str) -> Option<u8> {
-        let name = plan_name.to_lowercase();
+        let name = plan_name
+            .replace(['_', '-'], " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
         if name.contains("free") {
             Some(0)
         } else if name.contains("go") {
             Some(1)
+        } else if matches!(
+            name.as_str(),
+            "pro" | "pro 20x" | "pro 200" | "promax" | "pro max" | "pro 500"
+        ) {
+            Some(5)
+        } else if matches!(name.as_str(), "prolite" | "pro lite" | "pro 5x" | "pro 100")
+            || name.contains("business premium")
+        {
+            Some(4)
         } else if name.contains("plus") || name.contains("business") || name.contains("team") {
             Some(2)
-        } else if name.contains("pro 20x") {
-            Some(5)
-        } else if name.contains("pro 5x") || name.contains("prolite") {
-            Some(4)
         } else {
             None
         }
@@ -505,44 +655,11 @@ impl Provider for CodexProvider {
         }
 
         let body = resp.error_for_status()?.json::<WhamResp>().await?;
-
-        // 套餐徽章：把接口内部名标准化为用户可读名称
-        // （如 prolite / pro_5x → Pro 5X）。
-        // 只有返回明确 5x / 20x 时，前端才按对应价格色阶显示。
-        let plan_name = body.plan_type.as_deref().map(display_plan_name);
-
-        // 额度窗口：primary + secondary（可为 null 则跳过）
-        let mut windows: Vec<QuotaWindow> = Vec::new();
-        if let Some(rl) = &body.rate_limit {
-            if let Some(pw) = &rl.primary_window {
-                if let Some(w) = to_window(pw) {
-                    windows.push(w);
-                }
-            }
-            if let Some(sw) = &rl.secondary_window {
-                if let Some(w) = to_window(sw) {
-                    windows.push(w);
-                }
-            }
-        }
-
-        // credits → 余额型展示（USD）
-        let balance = credit_balance(body.credits.as_ref());
-
-        Ok(ProviderSnapshot {
-            account_id: String::new(),
-            account_label: account_label_from_credential(cred),
-            provider_id: self.id().to_string(),
-            display_name: self.display_name().to_string(),
-            plan_name,
-            billing: BillingMode::Subscription,
-            balance,
-            windows,
-            fidelity: Fidelity::Exact,
-            status: HealthStatus::Ok,
-            fetched_at: Utc::now().timestamp(),
-            last_error: None,
-        })
+        Ok(snapshot_from_wham(
+            body,
+            account_label_from_credential(cred),
+            Utc::now().timestamp(),
+        ))
     }
 }
 
@@ -555,9 +672,11 @@ fn display_plan_name(plan_type: &str) -> String {
         .to_lowercase();
 
     match normalized.as_str() {
-        // wham/usage 对 99 美元档可能返回内部名 prolite；产品名称统一显示 Pro 5X。
-        "prolite" | "pro lite" | "pro 5x" => "Pro 5X".to_string(),
-        "pro 20x" => "Pro 20X".to_string(),
+        // 官方 Codex schema 的机器值为 prolite / pro / promax；营销名称为
+        // Pro 100 / Pro 200 / Pro 500。旧 5x/20x 字符串只保留为历史兼容。
+        "prolite" | "pro lite" | "pro 5x" | "pro 100" => "Pro 100".to_string(),
+        "pro" | "pro 20x" | "pro 200" => "Pro 200".to_string(),
+        "promax" | "pro max" | "pro 500" => "Pro 500".to_string(),
         _ => normalized
             .split_whitespace()
             .map(|word| {
@@ -576,20 +695,147 @@ fn display_plan_name(plan_type: &str) -> String {
 mod tests {
     use super::{
         credit_balance, display_plan_name, merge_refreshed_tokens_into_cli_auth, refresh_request,
-        CodexProvider, Credits, NumStr, CLIENT_ID,
+        snapshot_from_wham, CodexProvider, Credits, NumStr, WhamResp, CLIENT_ID,
     };
-    use crate::core::providers::Credential;
-    use crate::core::providers::Provider;
+    use crate::core::providers::presentation::CardItem;
+    use crate::core::providers::{Credential, HealthStatus, Provider, QuotaUnit};
+
+    fn whole_card(plan_type: &str, used_percent: serde_json::Value) -> super::ProviderSnapshot {
+        let body: WhamResp = serde_json::from_value(serde_json::json!({
+            "plan_type": plan_type,
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 10,
+                    "limit_window_seconds": 18000,
+                    "reset_at": 1790000000
+                },
+                "secondary_window": {
+                    "used_percent": used_percent,
+                    "limit_window_seconds": 604800,
+                    "reset_at": 1790500000
+                }
+            }
+        }))
+        .unwrap();
+        snapshot_from_wham(body, Some("fixture@example.com".into()), 42)
+    }
 
     #[test]
-    fn preserves_codex_pro_tier_suffixes() {
-        assert_eq!(display_plan_name("prolite"), "Pro 5X");
-        assert_eq!(display_plan_name("pro_lite"), "Pro 5X");
-        assert_eq!(display_plan_name("pro_5x"), "Pro 5X");
-        assert_eq!(display_plan_name("pro-20x"), "Pro 20X");
+    fn maps_current_codex_pro_machine_values_and_legacy_aliases() {
+        assert_eq!(display_plan_name("prolite"), "Pro 100");
+        assert_eq!(display_plan_name("pro"), "Pro 200");
+        assert_eq!(display_plan_name("promax"), "Pro 500");
+        assert_eq!(display_plan_name("pro_5x"), "Pro 100");
+        assert_eq!(display_plan_name("pro-20x"), "Pro 200");
         let provider = CodexProvider::new();
+        assert_eq!(provider.plan_tier("Pro 100"), Some(4));
+        assert_eq!(provider.plan_tier("Pro 200"), Some(5));
+        assert_eq!(provider.plan_tier("Pro 500"), Some(5));
         assert_eq!(provider.plan_tier("Pro 5X"), Some(4));
         assert_eq!(provider.plan_tier("Pro 20X"), Some(5));
+        assert_eq!(provider.plan_tier("Business Standard"), Some(2));
+        assert_eq!(provider.plan_tier("Business Premium"), Some(4));
+        assert_eq!(provider.plan_tier("Enterprise Contract"), None);
+    }
+
+    #[test]
+    fn current_pro_machine_values_produce_expected_whole_cards() {
+        let provider = CodexProvider::new();
+        for (raw, name, tier) in [
+            ("prolite", "Pro 100", 4),
+            ("pro", "Pro 200", 5),
+            ("promax", "Pro 500", 5),
+        ] {
+            let snapshot = whole_card(raw, serde_json::json!(40));
+            let card = provider.present(&snapshot);
+            assert_eq!(card.plan.as_ref().unwrap().name, name);
+            assert_eq!(card.plan.as_ref().unwrap().tier, Some(tier));
+            assert_eq!(card.primary.label, "本周余量");
+            assert_eq!(card.primary.value, Some(60.0));
+            assert_eq!(card.primary.health_used_percent, Some(40.0));
+            assert_eq!(card.status, HealthStatus::Ok);
+        }
+    }
+
+    #[test]
+    fn promax_fixture_preserves_additional_limits_without_replacing_main_quota() {
+        let body: WhamResp = serde_json::from_str(include_str!(
+            "fixtures/codex-promax-official-schema-synthetic.json"
+        ))
+        .unwrap();
+        let snapshot = snapshot_from_wham(body, Some("fixture@example.com".into()), 42);
+        let card = CodexProvider::new().present(&snapshot);
+
+        assert_eq!(card.plan.as_ref().unwrap().name, "Pro 500");
+        assert_eq!(card.plan.as_ref().unwrap().tier, Some(5));
+        assert_eq!(card.primary.label, "本周余量");
+        assert_eq!(card.primary.value, Some(60.0));
+        assert_eq!(card.primary.health_used_percent, Some(40.0));
+        assert_eq!(card.status, HealthStatus::Ok);
+        assert_eq!(card.items.len(), 5);
+        assert!(card.items.iter().any(|item| matches!(
+            item,
+            CardItem::Quota { label, used_percent: Some(80.0), .. }
+                if label == "codex_other · 1 天"
+        )));
+        assert!(card.items.iter().any(|item| matches!(
+            item,
+            CardItem::Balance { label, value: Some(25.5), unit: QuotaUnit::Currency(currency) }
+                if label == "Credit 余额" && currency == "USD"
+        )));
+    }
+
+    #[test]
+    fn zero_values_remain_visible_and_unknown_or_invalid_fields_degrade() {
+        let zero_body: WhamResp = serde_json::from_value(serde_json::json!({
+            "plan_type": "pro",
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 0,
+                    "limit_window_seconds": 18000
+                }
+            },
+            "credits": { "has_credits": false, "balance": 0 }
+        }))
+        .unwrap();
+        let zero_card = CodexProvider::new().present(&snapshot_from_wham(zero_body, None, 1));
+        assert_eq!(zero_card.primary.value, Some(100.0));
+        assert_eq!(zero_card.primary.health_used_percent, Some(0.0));
+        assert!(zero_card.items.iter().any(|item| matches!(
+            item,
+            CardItem::Balance {
+                value: Some(0.0),
+                ..
+            }
+        )));
+
+        let invalid_body: WhamResp = serde_json::from_value(serde_json::json!({
+            "plan_type": "future_enterprise",
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 25,
+                    "limit_window_seconds": 0
+                },
+                "secondary_window": {
+                    "limit_window_seconds": 604800
+                }
+            },
+            "credits": { "has_credits": true }
+        }))
+        .unwrap();
+        let invalid_snapshot = snapshot_from_wham(invalid_body, None, 2);
+        let invalid_card = CodexProvider::new().present(&invalid_snapshot);
+        assert_eq!(
+            invalid_card.plan.as_ref().unwrap().name,
+            "Future Enterprise"
+        );
+        assert_eq!(invalid_card.plan.as_ref().unwrap().tier, None);
+        assert_eq!(invalid_card.status, HealthStatus::Degraded);
+        assert_eq!(invalid_card.primary.value, None);
+        assert!(!invalid_card.items.iter().any(|item| matches!(
+            item,
+            CardItem::Balance { label, .. } if label == "Credit 余额"
+        )));
     }
 
     #[test]

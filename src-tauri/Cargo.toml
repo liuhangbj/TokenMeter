@@ -1,6 +1,6 @@
 [package]
 name = "tokenmeter"
-version = "0.9.10"
+version = "0.9.11"
 description = "Cross-platform menu bar app for monitoring AI token/quota usage"
 authors = ["hangbits"]
 edition = "2021"
@@ -44,3 +44,8 @@ windows = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 custom-protocol = ["tauri/custom-protocol"]
 # 默认不开启系统托盘原生菜单（我们手动构建）
 default = []
+
+# Backport macOS 27 click forwarding to 0.24.2; remove after an upstream release
+# containing tray-icon PR #365 passes our tray regression checks.
+[patch.crates-io]
+tray-icon = { path = "vendor/tray-icon" }
