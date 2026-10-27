@@ -1,5 +1,13 @@
 # 更新记录
 
+## v0.9.12（2026-10-27）
+
+### macOS 签名与打包
+
+- 修复 macOS App 只有 linker ad-hoc 签名、未覆盖 `Info.plist` 与资源，导致浏览器下载后可能被系统判定为“已损坏”的问题
+- Apple Silicon 与 Intel 发布任务均对最终 DMG 内 App 和 updater tar 内 App 校验架构、版本、bundle ID、完整资源封印与严格代码签名；任一失败都阻止公开发布
+- macOS 包仍使用免费的 ad-hoc 签名，不是 Apple Developer ID 签名，也未经过 Apple 公证；首次打开仍可能需要在「隐私与安全性」中手动允许
+
 ## v0.9.9（2026-08-15）
 
 ### Windows 悬浮球补丁

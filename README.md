@@ -90,7 +90,7 @@ macOS（Apple Silicon / Intel）与 Windows 全部功能免费开放，MIT 协�
 | Windows (MSI) | `TokenMeter_x.x.x_x64_en-US.msi` |
 | Windows (NSIS) | `TokenMeter_x.x.x_x64-setup.exe` |
 
-> ⚠️ 当前版本未做代码签名：macOS 首次打开需在「系统设置 → 隐私与安全性」允许；Windows 可能提示 SmartScreen，选"仍要运行"。
+> ⚠️ macOS 包使用完整的 ad-hoc 应用签名，但不是 Apple Developer ID 签名，也未经过 Apple 公证。首次从互联网下载后，macOS 仍可能阻止打开：请先尝试打开一次，再前往「系统设置 → 隐私与安全性」手动允许。如果系统没有提供允许入口，请保留原始提示并反馈，不要删除 quarantine 属性或关闭 Gatekeeper。Windows 可能提示 SmartScreen，可在确认下载来源后选择“仍要运行”。
 
 ## 开发
 

@@ -17,12 +17,15 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             bundle: dmg
+            artifact_arch: aarch64
           - os: macos-15-intel
             target: x86_64-apple-darwin
             bundle: dmg
+            artifact_arch: x64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bundle: msi
+            artifact_arch: x64
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -48,6 +51,15 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Guard draft release before any asset upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          scripts/guard-release-draft.sh "$REPO" "v$VERSION"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -59,15 +71,32 @@ jobs:
           tagName: v__VERSION__
           releaseName: "TokenMeter v__VERSION__"
           releaseBody: |
-            - Codex 套餐识别更新：支持 Pro 100 / Pro 200 / Pro 500，修正套餐徽章档位与主题配色
-            - Codex 独立额度窗口完整展示，并保持主额度与 Credit 健康语义互不干扰
-            - Claude、Gemini、OpenRouter、SiliconFlow 等供应商字段映射与异常降级更稳健
-            - 修复 macOS 27 菜单栏图标点击兼容性
+            - 修复 macOS App 只有 linker 签名、未覆盖 Info.plist 与资源，导致下载后可能被系统判定为“已损坏”的问题
+            - Apple Silicon 与 Intel 发布任务新增最终 DMG 和 updater 包的架构、版本、bundle ID、资源封印与严格签名校验
+
+            说明：macOS 包使用免费的完整 ad-hoc 签名，不是 Apple Developer ID 签名，也未经过 Apple 公证。首次从互联网下载后，macOS 仍可能要求在“隐私与安全性”中手动允许。
 
             macOS 提供 Apple Silicon 与 Intel DMG，Windows 提供 x64 安装包。
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: false  # latest.json 由 merge job 用 .sig 签名构造后统一上传
+
+      # tauri-action 会先把产物上传到草稿 Release；只有此步骤和全部平台任务都通过，
+      # merge-updater-json 才会公开 Release。草稿中的坏包不能被误发布。
+      - name: Verify macOS release artifacts
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          scripts/verify-macos-artifacts.sh \
+            --target "${{ matrix.target }}" \
+            --version "$VERSION" \
+            --bundle-id "com.hangbits.tokenmeter" \
+            --dmg "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/TokenMeter_${VERSION}_${{ matrix.artifact_arch }}.dmg" \
+            --updater "src-tauri/target/${{ matrix.target }}/release/bundle/macos/TokenMeter.app.tar.gz" \
+            --updater-signature "src-tauri/target/${{ matrix.target }}/release/bundle/macos/TokenMeter.app.tar.gz.sig" \
+            --negative-test
 
   # 构造 latest.json 并上传到 Release：
   # Tauri CLI 只生成 .sig 签名文件（不生成 latest.json），latest.json 是
